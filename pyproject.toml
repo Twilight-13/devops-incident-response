@@ -1,6 +1,6 @@
 [build-system]
-requires = ["setuptools>=61.0"]
-build-backend = "setuptools.build_meta"
+requires = ["hatchling"]
+build-backend = "hatchling.build"
 
 [project]
 name = "devops-incident-response"
@@ -9,8 +9,9 @@ description = "DevOps Incident Response OpenEnv"
 authors = [
     { name = "devops-incident-env" }
 ]
-requires-python = ">=3.9"
+requires-python = ">=3.11"
 dependencies = [
+    "openenv-core>=0.2.0",
     "pydantic>=2.0,<3.0",
     "fastapi>=0.110.0",
     "uvicorn>=0.29.0",
@@ -18,3 +19,6 @@ dependencies = [
     "python-dotenv>=1.0.0",
     "pyyaml>=6.0"
 ]
+
+[project.scripts]
+server = "server.app:main"
