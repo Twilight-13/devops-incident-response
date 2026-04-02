@@ -186,7 +186,9 @@ def health():
 
 
 @app.post("/reset", response_model=Observation)
-def reset(req: ResetRequest):
+def reset(req: Optional[ResetRequest] = None):
+    if req is None:
+        req = ResetRequest()
     global _env
     if req.task_id not in VALID_TASKS:
         raise HTTPException(
