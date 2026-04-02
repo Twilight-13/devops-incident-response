@@ -62,6 +62,8 @@ class InternalState:
     ground_truth_root_cause: str
     ground_truth_fix: str
     incident_start_time: str
+    last_action_result: Optional[str] = field(default=None)
+    last_action_error: Optional[str] = field(default=None)
     rewards_given: Set[str] = field(default_factory=set)
     healthy_services: List[str] = field(default_factory=list)
     evidence_log: List[dict] = field(default_factory=list)
@@ -131,6 +133,8 @@ class InternalState:
         last_action_result: Optional[str] = None,
         last_action_error: Optional[str] = None,
     ) -> Observation:
+        if last_action_result is not None: self.last_action_result = last_action_result
+        if last_action_error is not None: self.last_action_error = last_action_error
         services = []
         for name, s in self.services.items():
             services.append(ServiceStatus(
@@ -160,13 +164,16 @@ class InternalState:
             task_description=TASK_DESCRIPTIONS.get(self.task_id, ""),
             services=services,
             active_alerts=alerts,
-            recent_logs=self.logs,
+            recent_logs={
+                svc: lines[-2:] + ([f"[... {len(lines)-2} more lines — use read_logs to see full history]"] if len(lines) > 2 else [])
+                for svc, lines in self.logs.items()
+            },
             available_runbooks=AVAILABLE_RUNBOOKS,
             service_dependencies=deps,
             evidence_log=evidence,
             sla_status=sla,
-            last_action_result=last_action_result,
-            last_action_error=last_action_error,
+            last_action_result=self.last_action_result,
+            last_action_error=self.last_action_error,
             incident_start_time=self.incident_start_time,
             elapsed_minutes=self.step * 2,
         )
@@ -223,6 +230,27 @@ class BaseTask(ABC):
                 })
                 return result, None
             return None, f"No logs found for service '{svc}'"
+
+        if at == "search_logs":
+            svc = action.service
+            query = (action.query or "").lower()
+            if not svc or svc not in state.logs:
+                return None, f"Unknown service '{svc}'"
+            if not query:
+                return None, "search_logs requires a query parameter"
+            lines = state.logs[svc]
+            matches = [l for l in lines if query in l.lower()]
+            if not matches:
+                result = f"No lines matching '{query}' in {svc} logs."
+            else:
+                result = f"Found {len(matches)} lines matching '{query}':\n" + "\n".join(matches)
+            state.evidence_log.append({
+                "step": state.step,
+                "source": f"search:{svc}",
+                "summary": f"Searched {svc} for '{query}': {len(matches)} matches",
+                "raw": result,
+            })
+            return result, None
 
         if at == "read_metrics":
             svc = action.service

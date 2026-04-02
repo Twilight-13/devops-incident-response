@@ -177,10 +177,10 @@ class EasyTask(BaseTask):
 
         result_text, error_text = self._apply_action_to_logs(state, action)
 
-        if at == ActionType.READ_LOGS and svc == failing:
-            if "read_logs" not in state.rewards_given:
+        if at in (ActionType.READ_LOGS, ActionType.SEARCH_LOGS) and svc == failing:
+            if "logs_investigated" not in state.rewards_given:
                 reward += 0.15
-                state.rewards_given.add("read_logs")
+                state.rewards_given.add("logs_investigated")
 
         if at == ActionType.READ_METRICS and svc == failing:
             if "read_metrics" not in state.rewards_given:

@@ -15,6 +15,7 @@ class ActionType(str, Enum):
     ALERT_ONCALL = "alert_oncall"
     ACKNOWLEDGE = "acknowledge"
     NOOP = "noop"
+    SEARCH_LOGS = "search_logs"
 
 
 class Action(BaseModel):
@@ -24,6 +25,7 @@ class Action(BaseModel):
     runbook: Optional[str] = None
     version: Optional[str] = None
     reason: Optional[str] = None
+    query: Optional[str] = None  # used with search_logs
 
 
 class Alert(BaseModel):

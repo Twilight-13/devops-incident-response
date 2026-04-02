@@ -86,6 +86,8 @@ action_space:
       description: Record the agent's root cause hypothesis
     - name: read_logs
       description: Read recent log lines for a named service
+    - name: search_logs
+      description: Search log lines for a service matching a query string
     - name: read_metrics
       description: Read CPU, memory, error rate, latency for a named service
     - name: read_runbook

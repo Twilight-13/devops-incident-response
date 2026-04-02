@@ -161,8 +161,11 @@ class HardTask(BaseTask):
 
         gather_map = {
             ("read_logs", "price-validation-service"): ("rl_price", 0.05),
+            ("search_logs", "price-validation-service"): ("rl_price", 0.05),
             ("read_logs", "analytics-service"):         ("rl_analytics", 0.05),
+            ("search_logs", "analytics-service"):       ("rl_analytics", 0.05),
             ("read_logs", "data-pipeline-service"):     ("rl_pipeline", 0.05),
+            ("search_logs", "data-pipeline-service"):   ("rl_pipeline", 0.05),
             ("read_metrics", "analytics-service"):      ("rm_analytics", 0.10),
             ("read_metrics", "data-pipeline-service"):  ("rm_pipeline", 0.10),
         }

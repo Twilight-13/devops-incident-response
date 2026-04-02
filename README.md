@@ -30,22 +30,64 @@ remediation, while penalising collateral damage and blind actions.
 
 ---
 
-## Why This Environment?
+## Motivation
 
-Every software company runs incident response. On-call engineers spend hours
-each week reading logs, correlating metrics, and executing precise remediations
-under time pressure. This is exactly the kind of multi-step, information-sparse,
-high-stakes reasoning task that separates strong AI agents from weak ones.
+Existing agent benchmarks focus on software engineering (SWE-bench), 
+web navigation (WebArena), or general tool use (AgentBench). None 
+model **operational intelligence** — the ability to reason under 
+uncertainty about live production systems.
 
-**What makes it a rigorous benchmark:**
-- The hard task fires **no standard alerts** — the signal is buried in WARN-level
-  logs and business metric anomalies across 6 services
-- The reward function gives **dense partial credit** so training signal is never sparse
-- **SLA degradation** — services worsen each step if unresolved, creating real time pressure
-- **Service dependency map** — exposes call topology so agents can trace cascades
-- **Evidence log** — accumulated across steps so agents can reason over gathered data
-- **Collateral damage penalty** — restarting healthy services reduces the score
-- **Blind remediation penalty** — acting without diagnosing first is penalised
+Yet incident response is one of the highest-stakes, highest-frequency 
+tasks in software organizations. Every company running microservices 
+faces this daily. The skills required are exactly what distinguishes 
+capable AI agents from weak ones:
+
+- **Multi-step information gathering** under time pressure
+- **Causal reasoning** over dependent systems  
+- **Precise action selection** where wrong actions cause additional damage
+- **Signal vs noise discrimination** (red-herring alerts, silent failures)
+
+This environment fills that gap. It is the first OpenEnv-compliant RL 
+environment specifically designed to benchmark agent performance on 
+production incident response.
+
+### Comparison to Existing Benchmarks
+
+| Benchmark | Domain | Multi-step | Real-world | Partial obs | Dense reward |
+|---|---|---|---|---|---|
+| SWE-bench | Code repair | ✓ | ✓ | ✗ | ✗ |
+| WebArena | Web navigation | ✓ | ✓ | ✓ | ✗ |
+| AgentBench | General tools | ✓ | Partial | ✗ | ✗ |
+| **DevOps-IR (ours)** | **Incident response** | **✓** | **✓** | **✓** | **✓** |
+
+### Episode Architecture
+```mermaid
+graph TD
+    A[Agent] -->|Action| B[DevOpsIncidentEnv]
+    B -->|Observation| A
+    B --> C[ServiceStatus x N]
+    B --> D[AlertList]
+    B --> E[EvidenceLog]
+    B --> F[DependencyMap]
+    B --> G[SLAStatus]
+    H[Grader] -->|score 0-1| I[Episode Analytics]
+    B -->|done=True| H
+    I --> J[steps_to_diagnosis]
+    I --> K[info_gathering_ratio]
+    I --> L[collateral_damage_events]
+```
+
+### What Makes This Hard
+
+The four tasks are designed to require qualitatively different 
+reasoning strategies:
+
+- **Easy**: Direct signal reading — logs clearly show OOM, fix is obvious
+- **Medium**: Dependency tracing — must follow the call chain to find root
+- **Hard**: Anomaly correlation — zero error alerts, signal buried in WARN 
+  logs and business metrics across 6 services
+- **Bonus**: Parallel diagnosis — two unrelated failures, agent must 
+  decompose and fix independently
 
 ---
 
@@ -83,6 +125,7 @@ and exact metric values.
 | `read_logs` | `service` (str) | Fetch recent log lines for a service |
 | `read_metrics` | `service` (str) | Fetch CPU, memory, error rate, P99 latency |
 | `read_runbook` | `runbook` (str) | Read an operational runbook |
+| `search_logs` | `service`, `query` | Search log lines matching a keyword |
 | `restart_service` | `service` (str) | Restart a service (clears memory/connections) |
 | `rollback` | `service`, `version` | Roll back to a previous artifact version |
 | `scale_up` | `service` (str) | Increase replica count |

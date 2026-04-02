@@ -207,9 +207,9 @@ class MediumTask(BaseTask):
 
         result_text, error_text = self._apply_action_to_logs(state, action)
 
-        if at == ActionType.READ_LOGS and svc == "inventory-service":
-            if "read_logs_inv" not in state.rewards_given:
-                reward += 0.10; state.rewards_given.add("read_logs_inv")
+        if at in (ActionType.READ_LOGS, ActionType.SEARCH_LOGS) and svc == "inventory-service":
+            if "logs_investigated" not in state.rewards_given:
+                reward += 0.10; state.rewards_given.add("logs_investigated")
         if at == ActionType.READ_METRICS and svc == "inventory-service":
             if "read_metrics_inv" not in state.rewards_given:
                 reward += 0.10; state.rewards_given.add("read_metrics_inv")

@@ -37,15 +37,17 @@ dependency map, and a log of all evidence you have gathered so far.
 
 Your strategy:
 1. Read logs and metrics for the most suspicious services BEFORE acting
-2. Use the dependency map to trace cascades to their ROOT cause
-3. Issue a DIAGNOSE action once you have enough evidence
-4. Apply the precise fix — wrong service or wrong action loses points
-5. On hard incidents: both rollback AND alert_oncall may be required
+2. Use search_logs to find specific error patterns efficiently instead of reading all logs when you know what to look for.
+3. Use the dependency map to trace cascades to their ROOT cause
+4. Issue a DIAGNOSE action once you have enough evidence
+5. Apply the precise fix — wrong service or wrong action loses points
+6. On hard incidents: both rollback AND alert_oncall may be required
 
 Respond with ONLY a valid JSON object — no markdown, no commentary:
 {
-  "action_type": "<diagnose|read_logs|read_metrics|read_runbook|restart_service|rollback|scale_up|alert_oncall|acknowledge|noop>",
+  "action_type": "<diagnose|read_logs|search_logs|read_metrics|read_runbook|restart_service|rollback|scale_up|alert_oncall|acknowledge|noop>",
   "service": "<service name or null>",
+  "query": "<search keyword if action_type is search_logs, else null>",
   "root_cause": "<diagnosis string if action_type is diagnose, else null>",
   "runbook": "<runbook filename if action_type is read_runbook, else null>",
   "version": "<version string if action_type is rollback, else null>",
@@ -56,6 +58,19 @@ Available runbooks: high_cpu.md, memory_leak.md, db_connection.md,
 deployment_rollback.md, cascade_failure.md, data_corruption.md
 """).strip()
 
+REASONING_PROMPT = """
+You are a senior DevOps engineer responding to a production incident.
+
+Before deciding your next action, think through what you know:
+1. What services are affected and what is their status?
+2. What evidence have you gathered so far?
+3. What is the most likely root cause based on your evidence?
+4. What is the single most valuable piece of information still missing?
+5. What action would best close that information gap?
+
+Respond in plain text with your reasoning. Be concise (3-5 sentences).
+Do NOT output a JSON action yet — just your analysis.
+""".strip()
 
 def observation_to_text(obs: Observation) -> str:
     lines = [
@@ -158,6 +173,7 @@ def parse_action(response_text: str) -> Action:
         return Action(
             action_type=ActionType(at_str),
             service=data.get("service"),
+            query=data.get("query"),
             root_cause=data.get("root_cause"),
             runbook=data.get("runbook"),
             version=data.get("version"),
@@ -183,18 +199,49 @@ def run_task(client: OpenAI, task_id: str, seed: int = 42) -> dict:
         prompt = observation_to_text(obs)
 
         try:
-            completion = client.chat.completions.create(
+            reasoning_completion = client.chat.completions.create(
+                model=MODEL_NAME,
+                messages=[
+                    {"role": "system", "content": REASONING_PROMPT},
+                    {"role": "user", "content": prompt},
+                ],
+                temperature=0.3,
+                max_tokens=256,
+            )
+            reasoning = reasoning_completion.choices[0].message.content or ""
+            
+            action_prompt = f"""
+            Based on your analysis:
+            {reasoning}
+            
+            Now output your action as a JSON object:
+            {{
+              "action_type": "...",
+              "service": "...",
+              "query": "...",
+              "root_cause": "...",
+              "runbook": "...",
+              "version": "...",
+              "reason": "one sentence summary"
+            }}
+            Output ONLY the JSON object.
+            """.strip()
+            
+            action_completion = client.chat.completions.create(
                 model=MODEL_NAME,
                 messages=[
                     {"role": "system", "content": SYSTEM_PROMPT},
                     {"role": "user", "content": prompt},
+                    {"role": "assistant", "content": reasoning},
+                    {"role": "user", "content": action_prompt},
                 ],
-                temperature=TEMPERATURE,
-                max_tokens=MAX_TOKENS,
+                temperature=0.1,
+                max_tokens=200,
             )
-            response_text = completion.choices[0].message.content or ""
+            response_text = action_completion.choices[0].message.content or ""
         except Exception as exc:
             print(f"  Step {step:02d}: API error — {exc}")
+            reasoning = "(error)"
             response_text = ""
 
         action = parse_action(response_text)
@@ -213,7 +260,8 @@ def run_task(client: OpenAI, task_id: str, seed: int = 42) -> dict:
 
         reward_str = f"  reward={result.reward:+.3f}" if result.reward != 0 else ""
         resolution_str = f"  *** {result.info.get('resolution', '')} ***" if result.done and result.info.get("resolution") else ""
-        print(f"  Step {step:02d}: {action_label}{reward_str}{resolution_str}")
+        print(f"  Step {step:02d} reasoning: {reasoning[:100]}...")
+        print(f"  Step {step:02d} action:    {action_label}{reward_str}{resolution_str}")
 
         if obs.last_action_error:
             print(f"           ⚠ {obs.last_action_error[:80]}")

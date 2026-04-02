@@ -141,7 +141,9 @@ class BonusTask(BaseTask):
 
         gather_map = {
             ("read_logs", "log-aggregator"):       ("rl_agg", 0.05),
+            ("search_logs", "log-aggregator"):     ("rl_agg", 0.05),
             ("read_logs", "ml-inference-service"): ("rl_ml", 0.05),
+            ("search_logs", "ml-inference-service"):("rl_ml", 0.05),
             ("read_metrics", "log-aggregator"):    ("rm_agg", 0.05),
             ("read_metrics", "ml-inference-service"): ("rm_ml", 0.05),
         }
