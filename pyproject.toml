@@ -1,0 +1,20 @@
+[build-system]
+requires = ["setuptools>=61.0"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "devops-incident-response"
+version = "1.0.0"
+description = "DevOps Incident Response OpenEnv"
+authors = [
+    { name = "devops-incident-env" }
+]
+requires-python = ">=3.9"
+dependencies = [
+    "pydantic>=2.0,<3.0",
+    "fastapi>=0.110.0",
+    "uvicorn>=0.29.0",
+    "openai>=1.0.0",
+    "python-dotenv>=1.0.0",
+    "pyyaml>=6.0"
+]
