@@ -4,7 +4,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
 from env import DevOpsIncidentEnv
-from models import Action, Observation, StepResult, State
+from models import Action, ActionType, Observation, StepResult, State
 
 app = FastAPI(
     title="DevOps Incident Response — OpenEnv",
