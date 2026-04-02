@@ -1,0 +1,131 @@
+name: devops-incident-response
+version: "1.0.0"
+description: >
+  A reinforcement learning environment where AI agents learn to diagnose and
+  remediate production software incidents. Agents read logs, metrics, and
+  alerts across a simulated microservices architecture, then take remediation
+  actions such as rollbacks, restarts, and on-call escalations. Three tasks
+  of escalating difficulty — from a clear memory leak to silent data
+  corruption with no error-rate alerts — provide a meaningful difficulty
+  progression for benchmarking agent reasoning quality.
+
+author: "devops-incident-env"
+tags:
+  - openenv
+  - devops
+  - incident-response
+  - real-world
+  - multi-step
+  - microservices
+  - reward-shaping
+
+tasks:
+  - id: easy
+    name: Single Service Anomaly
+    description: >
+      A payment service is crash-looping due to a JVM heap memory leak.
+      Logs clearly show OutOfMemoryError and OOMKilled pod restarts.
+      The agent must read logs/metrics, diagnose the memory leak, and
+      restart the affected service without touching healthy services.
+    difficulty: easy
+    max_steps: 15
+    reward_range: [0.0, 1.0]
+    expected_score_random_agent: 0.05
+    expected_score_strong_llm: 0.75
+
+  - id: medium
+    name: Cascading Multi-Service Failure
+    description: >
+      A bad deployment of inventory-service introduced connection pool
+      exhaustion, cascading to order-service timeouts and api-gateway
+      errors. A red-herring alert fires on notification-service (high CPU
+      from a scheduled batch job). The agent must trace the cascade to the
+      root service and rollback — not restart downstream victims.
+    difficulty: medium
+    max_steps: 20
+    reward_range: [0.0, 1.0]
+    expected_score_random_agent: 0.03
+    expected_score_strong_llm: 0.55
+
+  - id: hard
+    name: Silent Data Corruption
+    description: >
+      A data pipeline deployment silently writes incorrect price values to
+      the product catalog. No standard error-rate or latency alerts fire —
+      all services show green health. The signal is buried in
+      price-validation WARN logs (15% mismatch rate) and an analytics
+      anomaly (avg order value 9x baseline). Full credit requires both
+      rollback of the pipeline AND alerting on-call for a data audit.
+    difficulty: hard
+    max_steps: 25
+    reward_range: [0.0, 1.0]
+    expected_score_random_agent: 0.01
+    expected_score_strong_llm: 0.35
+
+  - id: bonus
+    name: Simultaneous Dual Failure
+    description: >
+      Two independent failures strike at once: log-aggregator disk is 100% full
+      (causing log loss across all services) and ml-inference-service is stuck
+      in a model reload CPU loop. Neither failure is related to the other.
+      Full credit requires fixing both root causes independently.
+    difficulty: hard
+    max_steps: 25
+    reward_range: [0.0, 1.0]
+    expected_score_random_agent: 0.01
+    expected_score_strong_llm: 0.40
+
+action_space:
+  type: structured
+  description: >
+    Discrete action types with optional service/parameter arguments.
+    Actions are expressed as Pydantic Action objects with fields:
+    action_type, service, root_cause, runbook, version, reason.
+  actions:
+    - name: diagnose
+      description: Record the agent's root cause hypothesis
+    - name: read_logs
+      description: Read recent log lines for a named service
+    - name: read_metrics
+      description: Read CPU, memory, error rate, latency for a named service
+    - name: read_runbook
+      description: Read an operational runbook by filename
+    - name: restart_service
+      description: Restart a named service (clears memory, resets connections)
+    - name: rollback
+      description: Roll back a service to a previous version
+    - name: scale_up
+      description: Increase replica count for a named service
+    - name: alert_oncall
+      description: Page the on-call engineering team
+    - name: acknowledge
+      description: Acknowledge an active alert by ID
+    - name: noop
+      description: Take no action this step
+
+observation_space:
+  type: structured
+  description: >
+    Pydantic Observation object containing: current step, task description,
+    list of ServiceStatus objects (name, status, cpu, memory, error_rate,
+    latency_p99, replicas, version, last_deployed), list of Alert objects
+    (severity, service, message, acknowledged), recent log lines per
+    service (dict of service_name -> last 10 lines), available runbook
+    names, last action result/error, and incident timing info.
+
+reward:
+  type: dense
+  range: [0.0, 1.0]
+  description: >
+    Partial credit for information gathering, correct diagnosis, and
+    precise remediation. Penalties for collateral damage (restarting
+    healthy services), excessive noops, and treating symptoms instead
+    of root causes. Efficiency bonus for fast resolution.
+
+docker:
+  base_image: python:3.11-slim
+  port: 7860
+  health_endpoint: /health
+  reset_endpoint: /reset
+  step_endpoint: /step
+  state_endpoint: /state
