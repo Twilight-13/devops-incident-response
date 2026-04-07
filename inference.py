@@ -187,6 +187,7 @@ def run_task(client: OpenAI, task_id: str, seed: int = 42) -> dict:
     env = DevOpsIncidentEnv(task_id=task_id, seed=seed)
     obs = env.reset()
 
+    print(f"[START] task={task_id} seed={seed} model={MODEL_NAME}", flush=True)
     print(f"\n{'━'*64}")
     print(f"  Task: {task_id.upper()}  |  Seed: {seed}  |  Model: {MODEL_NAME}")
     print(f"{'━'*64}")
@@ -262,6 +263,8 @@ def run_task(client: OpenAI, task_id: str, seed: int = 42) -> dict:
         resolution_str = f"  *** {result.info.get('resolution', '')} ***" if result.done and result.info.get("resolution") else ""
         print(f"  Step {step:02d} reasoning: {reasoning[:100]}...")
         print(f"  Step {step:02d} action:    {action_label}{reward_str}{resolution_str}")
+        # Structured output required by Phase 2 validator
+        print(f"[STEP] task={task_id} step={step} action={action.action_type.value} reward={result.reward:.4f}", flush=True)
 
         if obs.last_action_error:
             print(f"           ⚠ {obs.last_action_error[:80]}")
@@ -283,6 +286,8 @@ def run_task(client: OpenAI, task_id: str, seed: int = 42) -> dict:
     print(f"  Steps taken  : {step}")
     print(f"  Rewards      : {[e['reward'] for e in state.action_history if e['reward'] != 0]}")
     print(f"  Final score  : {final_score:.4f}")
+    # Structured output required by Phase 2 validator
+    print(f"[END] task={task_id} score={final_score:.4f} steps={step} resolved={state.incident_resolved}", flush=True)
 
     return {
         "task_id": task_id,
