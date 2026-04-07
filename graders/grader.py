@@ -71,7 +71,9 @@ def grade_episode(
         if count > 1:
             score -= (count - 1) * 0.05
 
-    return round(max(0.0, min(1.0, score)), 4)
+    # Clamp to open interval (0.001, 0.999) — validator requires score strictly
+    # between 0 and 1; exactly 0.0 or 1.0 are rejected as out-of-range.
+    return round(max(0.001, min(0.999, score)), 4)
 
 
 def get_episode_analytics(
@@ -186,7 +188,7 @@ def run_smoke_test() -> None:
         analytics = get_episode_analytics(
             task_id, s.action_history, s.ground_truth_root_cause, s.incident_resolved
         )
-        assert 0.0 <= score <= 1.0, f"Score {score} out of range"
+        assert 0.0 < score < 1.0, f"Score {score} out of range (must be strictly between 0 and 1)"
         print(f"  {task_id}: score={score:.4f}  analytics={analytics['action_type_counts']}")
     print("Smoke test passed.")
 
