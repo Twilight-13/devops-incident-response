@@ -6,13 +6,22 @@ MANDATORY env vars:
     MODEL_NAME     The model identifier
     HF_TOKEN       Your Hugging Face / API key
 
+Optional:
+    INFERENCE_MODE   Set to 'fast' to skip Chain-of-Thought (1 call/step).
+                     Default is 'cot' (2 calls/step, better scores).
+                     Auto-switches to fast if any step exceeds STEP_TIMEOUT_S.
+    STEP_TIMEOUT_S   Max seconds per CoT step before auto-switching (default 12).
+
 Run:
     API_BASE_URL=... MODEL_NAME=... HF_TOKEN=... python inference.py
+    API_BASE_URL=... MODEL_NAME=... HF_TOKEN=... python inference.py --fast
 """
 
 import os
+import sys
 import json
 import re
+import time
 import textwrap
 from typing import Optional
 
@@ -23,11 +32,16 @@ from models import Action, ActionType, Observation
 from graders.grader import grade_episode
 
 API_BASE_URL = os.getenv("API_BASE_URL", "https://router.huggingface.co/v1")
-API_KEY = os.getenv("HF_TOKEN") or os.getenv("API_KEY", "")
-MODEL_NAME = os.getenv("MODEL_NAME", "meta-llama/Llama-3.3-70B-Instruct")
+API_KEY      = os.getenv("HF_TOKEN") or os.getenv("API_KEY", "")
+MODEL_NAME   = os.getenv("MODEL_NAME", "meta-llama/Llama-3.3-70B-Instruct")
 
-TEMPERATURE = 0.1
-MAX_TOKENS = 512
+# Inference mode: 'cot' (default) or 'fast'
+_mode_env     = os.getenv("INFERENCE_MODE", "cot").lower()
+FAST_MODE     = _mode_env == "fast" or "--fast" in sys.argv
+STEP_TIMEOUT  = float(os.getenv("STEP_TIMEOUT_S", "12"))   # seconds; auto-switch threshold
+
+TEMPERATURE   = 0.1
+MAX_TOKENS    = 512
 FALLBACK_ACTION = Action(action_type=ActionType.NOOP, reason="parse_failure")
 
 SYSTEM_PROMPT = textwrap.dedent("""
@@ -183,13 +197,66 @@ def parse_action(response_text: str) -> Action:
         return FALLBACK_ACTION
 
 
+def _call_fast(client: OpenAI, prompt: str) -> tuple[str, str]:
+    """Single-step: one LLM call returns JSON action directly."""
+    completion = client.chat.completions.create(
+        model=MODEL_NAME,
+        messages=[
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user",   "content": prompt},
+        ],
+        temperature=TEMPERATURE,
+        max_tokens=MAX_TOKENS,
+    )
+    response_text = completion.choices[0].message.content or ""
+    return response_text, "(fast-mode)"
+
+
+def _call_cot(client: OpenAI, prompt: str) -> tuple[str, str]:
+    """Two-step Chain-of-Thought: reason first, then emit JSON action."""
+    reasoning_completion = client.chat.completions.create(
+        model=MODEL_NAME,
+        messages=[
+            {"role": "system", "content": REASONING_PROMPT},
+            {"role": "user",   "content": prompt},
+        ],
+        temperature=0.3,
+        max_tokens=256,
+    )
+    reasoning = reasoning_completion.choices[0].message.content or ""
+
+    action_prompt = (
+        f"Based on your analysis:\n{reasoning}\n\n"
+        "Now output your action as a JSON object with fields: "
+        "action_type, service, query, root_cause, runbook, version, reason.\n"
+        "Output ONLY the JSON object."
+    )
+    action_completion = client.chat.completions.create(
+        model=MODEL_NAME,
+        messages=[
+            {"role": "system",    "content": SYSTEM_PROMPT},
+            {"role": "user",      "content": prompt},
+            {"role": "assistant", "content": reasoning},
+            {"role": "user",      "content": action_prompt},
+        ],
+        temperature=0.1,
+        max_tokens=200,
+    )
+    response_text = action_completion.choices[0].message.content or ""
+    return response_text, reasoning
+
+
 def run_task(client: OpenAI, task_id: str, seed: int = 42) -> dict:
     env = DevOpsIncidentEnv(task_id=task_id, seed=seed)
     obs = env.reset()
 
-    print(f"[START] task={task_id} seed={seed} model={MODEL_NAME}", flush=True)
+    # Respect global mode but allow per-task auto-downgrade if API is slow
+    use_fast = FAST_MODE
+    mode_label = "fast" if use_fast else "cot"
+
+    print(f"[START] task={task_id} seed={seed} model={MODEL_NAME} mode={mode_label}", flush=True)
     print(f"\n{'━'*64}")
-    print(f"  Task: {task_id.upper()}  |  Seed: {seed}  |  Model: {MODEL_NAME}")
+    print(f"  Task: {task_id.upper()}  |  Seed: {seed}  |  Mode: {mode_label.upper()}  |  Model: {MODEL_NAME}")
     print(f"{'━'*64}")
 
     done = False
@@ -200,48 +267,20 @@ def run_task(client: OpenAI, task_id: str, seed: int = 42) -> dict:
         prompt = observation_to_text(obs)
 
         try:
-            reasoning_completion = client.chat.completions.create(
-                model=MODEL_NAME,
-                messages=[
-                    {"role": "system", "content": REASONING_PROMPT},
-                    {"role": "user", "content": prompt},
-                ],
-                temperature=0.3,
-                max_tokens=256,
-            )
-            reasoning = reasoning_completion.choices[0].message.content or ""
-            
-            action_prompt = f"""
-            Based on your analysis:
-            {reasoning}
-            
-            Now output your action as a JSON object:
-            {{
-              "action_type": "...",
-              "service": "...",
-              "query": "...",
-              "root_cause": "...",
-              "runbook": "...",
-              "version": "...",
-              "reason": "one sentence summary"
-            }}
-            Output ONLY the JSON object.
-            """.strip()
-            
-            action_completion = client.chat.completions.create(
-                model=MODEL_NAME,
-                messages=[
-                    {"role": "system", "content": SYSTEM_PROMPT},
-                    {"role": "user", "content": prompt},
-                    {"role": "assistant", "content": reasoning},
-                    {"role": "user", "content": action_prompt},
-                ],
-                temperature=0.1,
-                max_tokens=200,
-            )
-            response_text = action_completion.choices[0].message.content or ""
+            t0 = time.monotonic()
+            if use_fast:
+                response_text, reasoning = _call_fast(client, prompt)
+            else:
+                response_text, reasoning = _call_cot(client, prompt)
+            elapsed = time.monotonic() - t0
+
+            # Auto-switch: if CoT step exceeds threshold, go fast for remainder
+            if not use_fast and elapsed > STEP_TIMEOUT:
+                use_fast = True
+                print(f"  ⚡ CoT took {elapsed:.1f}s > {STEP_TIMEOUT}s limit — switching to fast mode", flush=True)
+
         except Exception as exc:
-            print(f"  Step {step:02d}: API error — {exc}")
+            print(f"  Step {step:02d}: API error — {exc}", flush=True)
             reasoning = "(error)"
             response_text = ""
 
@@ -299,7 +338,13 @@ def run_task(client: OpenAI, task_id: str, seed: int = 42) -> dict:
 
 
 def main():
+    mode_label = "FAST" if FAST_MODE else "COT"
     client = OpenAI(base_url=API_BASE_URL, api_key=API_KEY)
+
+    print(f"\n{'━'*64}", flush=True)
+    print(f"  DevOps Incident Response — OpenEnv Baseline", flush=True)
+    print(f"  Mode: {mode_label}  |  Timeout: {STEP_TIMEOUT}s  |  Model: {MODEL_NAME}", flush=True)
+    print(f"{'━'*64}", flush=True)
 
     results = []
     for task_id in ["easy", "medium", "hard", "bonus"]:
@@ -307,7 +352,7 @@ def main():
         results.append(r)
 
     print(f"\n{'━'*64}")
-    print("  BASELINE SCORES")
+    print(f"  BASELINE SCORES  [{mode_label} mode]")
     print(f"{'━'*64}")
     total = 0.0
     for r in results:
@@ -325,3 +370,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+
