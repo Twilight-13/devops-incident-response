@@ -1,6 +1,6 @@
 [build-system]
-requires = ["hatchling"]
-build-backend = "hatchling.build"
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
 
 [project]
 name = "devops-incident-response"
@@ -11,7 +11,7 @@ authors = [
 ]
 requires-python = ">=3.11"
 dependencies = [
-    "openenv-core>=0.2.0",
+    "openenv-core>=0.2.3",
     "pydantic>=2.0,<3.0",
     "fastapi>=0.110.0",
     "uvicorn>=0.29.0",
@@ -22,3 +22,7 @@ dependencies = [
 
 [project.scripts]
 server = "server.app:main"
+
+[tool.setuptools]
+py-modules = ["__init__", "client", "models", "env", "inference", "api", "check_all", "check_grader", "validate"]
+packages = ["server", "tasks", "graders"]

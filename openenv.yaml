@@ -4,7 +4,7 @@ description: >
   A reinforcement learning environment where AI agents learn to diagnose and
   remediate production software incidents. Agents read logs, metrics, and
   alerts across a simulated microservices architecture, then take remediation
-  actions such as rollbacks, restarts, and on-call escalations. Three tasks
+  actions such as rollbacks, restarts, and on-call escalations. Four tasks
   of escalating difficulty — from a clear memory leak to silent data
   corruption with no error-rate alerts — provide a meaningful difficulty
   progression for benchmarking agent reasoning quality.
@@ -31,7 +31,7 @@ tasks:
     max_steps: 15
     reward_range: [0.0, 1.0]
     expected_score_random_agent: 0.05
-    expected_score_strong_llm: 0.75
+    expected_score_strong_llm: 0.90
 
   - id: medium
     name: Cascading Multi-Service Failure
