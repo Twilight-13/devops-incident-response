@@ -124,6 +124,11 @@ reward:
     healthy services), excessive noops, and treating symptoms instead
     of root causes. Efficiency bonus for fast resolution.
 
+websocket:
+  endpoint: /ws
+  protocol: json
+  commands: [reset, step, state]
+
 docker:
   base_image: python:3.11-slim
   port: 7860

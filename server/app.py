@@ -1,5 +1,5 @@
 from __future__ import annotations
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, WebSocket, WebSocketDisconnect
 from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
@@ -297,3 +297,87 @@ def validate():
     _env._logic = old_logic
     all_ok = all(r.get("status") == "ok" and r.get("in_range") for r in results)
     return {"validation": "passed" if all_ok else "failed", "tasks": results}
+
+
+@app.websocket("/ws")
+async def websocket_endpoint(websocket: WebSocket):
+    await websocket.accept()
+    # Independent environment instance for this connection
+    ws_env = DevOpsEnvironment()
+    
+    try:
+        while True:
+            data = await websocket.receive_json()
+            command = data.get("command")
+            
+            print(f"WebSocket received: {data}")
+            
+            if command == "reset":
+                task_id = data.get("task_id", "easy")
+                seed = data.get("seed")
+                obs = await ws_env.reset(seed=seed, task_id=task_id)
+                await websocket.send_json({
+                    "type": "observation",
+                    "data": obs.model_dump() if hasattr(obs, "model_dump") else obs.dict()
+                })
+                
+            elif command == "step":
+                if ws_env._logic is None:
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": "Call reset before step"
+                    })
+                    continue
+                    
+                action_data = data.get("action", {})
+                try:
+                    action = Action(**action_data)
+                    step_result = await ws_env.step(action)
+                    await websocket.send_json({
+                        "type": "step_result",
+                        "data": {
+                            "observation": step_result.observation.model_dump() if hasattr(step_result.observation, "model_dump") else step_result.observation.dict(),
+                            "reward": step_result.reward,
+                            "done": step_result.done,
+                            "info": step_result.info
+                        }
+                    })
+                except Exception as e:
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": str(e)
+                    })
+                    
+            elif command == "state":
+                if ws_env._logic is None:
+                    await websocket.send_json({
+                        "type": "error",
+                        "message": "Call reset before state"
+                    })
+                    continue
+                    
+                state = ws_env.state
+                await websocket.send_json({
+                    "type": "state",
+                    "data": state.model_dump() if hasattr(state, "model_dump") else state.dict()
+                })
+                
+            else:
+                await websocket.send_json({
+                    "type": "error",
+                    "message": f"Unrecognized command: {command}"
+                })
+                
+    except WebSocketDisconnect:
+        print("WebSocket client disconnected")
+    except Exception as e:
+        print(f"WebSocket error: {e}")
+        try:
+            await websocket.send_json({
+                "type": "error",
+                "message": str(e)
+            })
+        except:
+            pass
+        await websocket.close()
+
