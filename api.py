@@ -25,7 +25,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-VALID_TASKS = ("easy", "medium", "hard", "bonus")
+VALID_TASKS = ("easy", "medium", "hard", "bonus", "security")
 _env: Optional[DevOpsIncidentEnv] = None
 
 
@@ -95,6 +95,7 @@ def dashboard():
         .medium {{ background: #3a2a1a; color: #ff9800; }}
         .hard {{ background: #3a1a1a; color: #f44336; }}
         .bonus {{ background: #1a1a3a; color: #9c27b0; }}
+        .security {{ background: #3a1a1a; color: #ff5252; }}
         .endpoints {{ background: #1a1d27; border: 1px solid #2d3148; border-radius: 8px; padding: 1.25rem; margin-bottom: 2rem; }}
         .endpoints h3 {{ margin: 0 0 1rem; color: #fff; }}
         .endpoint {{ display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem; }}
@@ -132,6 +133,11 @@ def dashboard():
             <span class="badge bonus">BONUS</span>
             <h3>Dual Simultaneous Failure</h3>
             <p>Two independent failures at once. Both must be fixed for full credit. Max 25 steps.</p>
+        </div>
+        <div class="task">
+            <span class="badge security">SECURITY</span>
+            <h3>Security Incident (DDoS)</h3>
+            <p>Botnet DDoS and credential stuffing attack. Requires traffic blocking and security escalation. Max 20 steps.</p>
         </div>
     </div>
     
@@ -252,6 +258,16 @@ def list_tasks():
                 "description": (
                     "Two independent failures at once: disk full on log aggregator + "
                     "model reload CPU loop on ml-inference. Both must be fixed for full credit."
+                ),
+            },
+            {
+                "id": "security",
+                "name": "Security Incident (DDoS)",
+                "difficulty": "hard",
+                "max_steps": 20,
+                "description": (
+                    "A botnet is performing a DDoS and credential stuffing attack against the login endpoint. "
+                    "The agent must read access logs, diagnose the attack IP range, block the CIDR, and alert the security team."
                 ),
             },
         ]

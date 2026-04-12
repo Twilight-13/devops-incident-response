@@ -2,7 +2,7 @@ from __future__ import annotations
 import random
 from typing import Optional
 from models import Action, Observation, StepResult, State
-from tasks import EasyTask, MediumTask, HardTask, BonusTask
+from tasks import EasyTask, MediumTask, HardTask, BonusTask, SecurityTask
 from tasks.base import InternalState
 
 TASK_MAP = {
@@ -10,6 +10,7 @@ TASK_MAP = {
     "medium": MediumTask,
     "hard": HardTask,
     "bonus": BonusTask,
+    "security": SecurityTask,
 }
 
 

@@ -16,6 +16,7 @@ class ActionType(str, Enum):
     ACKNOWLEDGE = "acknowledge"
     NOOP = "noop"
     SEARCH_LOGS = "search_logs"
+    BLOCK_IP_RANGE = "block_ip_range"
 
 
 class Action(BaseModel):
@@ -26,6 +27,7 @@ class Action(BaseModel):
     version: Optional[str] = None
     reason: Optional[str] = None
     query: Optional[str] = None  # used with search_logs
+    ip_range: Optional[str] = None
 
 
 class Alert(BaseModel):

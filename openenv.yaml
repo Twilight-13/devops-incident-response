@@ -75,6 +75,18 @@ tasks:
     expected_score_random_agent: 0.01
     expected_score_strong_llm: 0.40
 
+  - id: security
+    name: Security Incident (DDoS)
+    description: >
+      A botnet is performing a DDoS and credential stuffing attack against the login endpoint.
+      The API gateway and Auth service are overwhelmed. The agent must read access logs,
+      diagnose the attack IP range, block the CIDR, and alert the security team.
+    difficulty: hard
+    max_steps: 20
+    reward_range: [0.0, 1.0]
+    expected_score_random_agent: 0.01
+    expected_score_strong_llm: 0.35
+
 action_space:
   type: structured
   description: >
@@ -104,6 +116,8 @@ action_space:
       description: Acknowledge an active alert by ID
     - name: noop
       description: Take no action this step
+    - name: block_ip_range
+      description: Block traffic from an IP range (CIDR format)
 
 observation_space:
   type: structured
