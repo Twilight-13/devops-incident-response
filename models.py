@@ -17,6 +17,7 @@ class ActionType(str, Enum):
     NOOP = "noop"
     SEARCH_LOGS = "search_logs"
     BLOCK_IP_RANGE = "block_ip_range"
+    CREATE_INDEX = "create_index"
 
 
 class Action(BaseModel):
@@ -28,6 +29,8 @@ class Action(BaseModel):
     reason: Optional[str] = None
     query: Optional[str] = None  # used with search_logs
     ip_range: Optional[str] = None
+    table: Optional[str] = None
+    column: Optional[str] = None
 
 
 class Alert(BaseModel):

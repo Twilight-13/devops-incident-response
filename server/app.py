@@ -14,7 +14,7 @@ try:
 except ImportError:
     HAS_WEB_INTERFACE = False
 
-VALID_TASKS = ("easy", "medium", "hard", "bonus", "security")
+VALID_TASKS = ("easy", "medium", "hard", "bonus", "security", "database")
 _env = DevOpsEnvironment()
 app = FastAPI(
     title="DevOps Incident Response — OpenEnv",
@@ -96,6 +96,7 @@ def dashboard():
         .hard {{ background: #3a1a1a; color: #f44336; }}
         .bonus {{ background: #1a1a3a; color: #9c27b0; }}
         .security {{ background: #3a1a1a; color: #ff5252; }}
+        .database {{ background: #1a2c3a; color: #4fc3f7; }}
         .endpoints {{ background: #1a1d27; border: 1px solid #2d3148; border-radius: 8px; padding: 1.25rem; margin-bottom: 2rem; }}
         .endpoints h3 {{ margin: 0 0 1rem; color: #fff; }}
         .endpoint {{ display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem; }}
@@ -138,6 +139,11 @@ def dashboard():
             <span class="badge security">SECURITY</span>
             <h3>Security Incident (DDoS)</h3>
             <p>Botnet DDoS and credential stuffing attack. Requires traffic blocking and security escalation. Max 20 steps.</p>
+        </div>
+        <div class="task">
+            <span class="badge database">DATABASE</span>
+            <h3>Database Degradation</h3>
+            <p>Missing schema index causing slow queries and full table scans. Fix via index creation or rollback. Max 20 steps.</p>
         </div>
     </div>
     
@@ -266,6 +272,16 @@ def list_tasks():
                 "description": (
                     "A botnet is performing a DDoS and credential stuffing attack against the login endpoint. "
                     "The agent must read access logs, diagnose the attack IP range, block the CIDR, and alert the security team."
+                ),
+            },
+            {
+                "id": "database",
+                "name": "Database Performance Degradation",
+                "difficulty": "hard",
+                "max_steps": 20,
+                "description": (
+                    "A recent migration added a user_segment column to the orders table without an index. "
+                    "Sequential table scans are spiking DB CPU. Discovered via read_metrics and the slow query log."
                 ),
             },
         ]

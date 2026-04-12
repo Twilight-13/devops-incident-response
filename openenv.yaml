@@ -87,6 +87,18 @@ tasks:
     expected_score_random_agent: 0.01
     expected_score_strong_llm: 0.35
 
+  - id: database
+    name: Database Performance Degradation (Missing Index)
+    description: >
+      A database migration ran 15 minutes ago that added a new column but forgot to add an index.
+      Now queries are doing full table scans sequentially, leading to major DB degradation.
+      The agent must read the Postgres slow query logs, evaluate sequential scan rates via metrics, and correctly assign a missing index or rollback the migration.
+    difficulty: hard
+    max_steps: 20
+    reward_range: [0.0, 1.0]
+    expected_score_random_agent: 0.01
+    expected_score_strong_llm: 0.35
+
 action_space:
   type: structured
   description: >
@@ -118,6 +130,8 @@ action_space:
       description: Take no action this step
     - name: block_ip_range
       description: Block traffic from an IP range (CIDR format)
+    - name: create_index
+      description: Create a database index on a specific table and column
 
 observation_space:
   type: structured

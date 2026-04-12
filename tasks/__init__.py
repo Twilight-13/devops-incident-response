@@ -3,5 +3,6 @@ from tasks.task_medium import MediumTask
 from tasks.task_hard import HardTask
 from tasks.task_bonus import BonusTask
 from tasks.task_security import SecurityTask
+from tasks.task_database import DatabaseTask
 
-__all__ = ["EasyTask", "MediumTask", "HardTask", "BonusTask", "SecurityTask"]
+__all__ = ["EasyTask", "MediumTask", "HardTask", "BonusTask", "SecurityTask", "DatabaseTask"]
