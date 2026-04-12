@@ -13,6 +13,8 @@ sdk: docker
 
 # DevOps Incident Response — OpenEnv
 
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Twilight-13/devops-incident-response/blob/main/train_grpo.ipynb)
+
 An OpenEnv-compliant reinforcement learning environment where AI agents learn
 to diagnose and remediate production software incidents across a simulated
 microservices architecture.
