@@ -99,6 +99,19 @@ tasks:
     expected_score_random_agent: 0.01
     expected_score_strong_llm: 0.35
 
+  - id: failover
+    name: Multi-Region Failover
+    description: >
+      A primary datacenter region (us-east-1) is degraded due to a network partition.
+      The agent must correctly identify which services support automatic multi-region failover
+      (api-gateway, cdn-service, order-service, redis-cache) and which do not (payment-service, postgres-primary).
+      Failing over the wrong services causes severe data inconsistency penalties.
+    difficulty: hard
+    max_steps: 25
+    reward_range: [0.0, 1.0]
+    expected_score_random_agent: 0.01
+    expected_score_strong_llm: 0.25
+
 action_space:
   type: structured
   description: >
@@ -132,6 +145,8 @@ action_space:
       description: Block traffic from an IP range (CIDR format)
     - name: create_index
       description: Create a database index on a specific table and column
+    - name: failover
+      description: Failover a service to a different target region
 
 observation_space:
   type: structured

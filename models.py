@@ -18,6 +18,7 @@ class ActionType(str, Enum):
     SEARCH_LOGS = "search_logs"
     BLOCK_IP_RANGE = "block_ip_range"
     CREATE_INDEX = "create_index"
+    FAILOVER = "failover"
 
 
 class Action(BaseModel):
@@ -31,6 +32,7 @@ class Action(BaseModel):
     ip_range: Optional[str] = None
     table: Optional[str] = None
     column: Optional[str] = None
+    target_region: Optional[str] = None
 
 
 class Alert(BaseModel):

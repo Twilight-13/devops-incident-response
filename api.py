@@ -25,7 +25,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-VALID_TASKS = ("easy", "medium", "hard", "bonus", "security", "database")
+VALID_TASKS = ("easy", "medium", "hard", "bonus", "security", "database", "failover")
 _env: Optional[DevOpsIncidentEnv] = None
 
 
@@ -97,6 +97,7 @@ def dashboard():
         .bonus {{ background: #1a1a3a; color: #9c27b0; }}
         .security {{ background: #3a1a1a; color: #ff5252; }}
         .database {{ background: #1a2c3a; color: #4fc3f7; }}
+        .failover {{ background: #3a1a3a; color: #ffeb3b; }}
         .endpoints {{ background: #1a1d27; border: 1px solid #2d3148; border-radius: 8px; padding: 1.25rem; margin-bottom: 2rem; }}
         .endpoints h3 {{ margin: 0 0 1rem; color: #fff; }}
         .endpoint {{ display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem; }}
@@ -144,6 +145,11 @@ def dashboard():
             <span class="badge database">DATABASE</span>
             <h3>Database Degradation</h3>
             <p>Missing schema index causing slow queries and full table scans. Fix via index creation or rollback. Max 20 steps.</p>
+        </div>
+        <div class="task">
+            <span class="badge failover">FAILOVER</span>
+            <h3>Multi-Region Failover</h3>
+            <p>Partial region failure. Discriminate between services that support auto-failover and those that require human escalation. Max 25 steps.</p>
         </div>
     </div>
     
@@ -284,6 +290,17 @@ def list_tasks():
                 "description": (
                     "A recent migration added a user_segment column to the orders table without an index. "
                     "Sequential table scans are spiking DB CPU. Discovered via read_metrics and the slow query log."
+                ),
+            },
+            {
+                "id": "failover",
+                "name": "Multi-Region Failover",
+                "difficulty": "hard",
+                "max_steps": 25,
+                "description": (
+                    "A primary datacenter region (us-east-1) is degraded due to a network partition. "
+                    "The agent must correctly identify which services support automatic multi-region failover "
+                    "and which do not. Failing over the wrong services causes severe data inconsistency penalties."
                 ),
             },
         ]
