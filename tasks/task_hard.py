@@ -218,6 +218,11 @@ class HardTask(BaseTask):
                 if "rollback_done" in state.rewards_given:
                     state.incident_resolved = True; done = True; info["resolution"] = "incident_resolved"
 
+
+        if at in (ActionType.BLOCK_IP_RANGE, ActionType.CREATE_INDEX, ActionType.FAILOVER):
+            reward -= 0.10
+            error_text = f"Action {at.value} is not applicable to this incident."
+
         state.total_reward = self._clamp(state.total_reward + reward)
         if state.step >= state.max_steps and not done:
             done = True; info["reason"] = "max_steps_reached"

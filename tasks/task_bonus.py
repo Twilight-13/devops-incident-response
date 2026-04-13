@@ -201,6 +201,11 @@ class BonusTask(BaseTask):
         if at == ActionType.NOOP and state.step > 5:
             reward -= 0.03
 
+
+        if at in (ActionType.BLOCK_IP_RANGE, ActionType.CREATE_INDEX, ActionType.FAILOVER):
+            reward -= 0.10
+            error_text = f"Action {at.value} is not applicable to this incident."
+
         state.total_reward = self._clamp(state.total_reward + reward)
         if state.step >= state.max_steps and not done:
             done = True; info["reason"] = "max_steps_reached"

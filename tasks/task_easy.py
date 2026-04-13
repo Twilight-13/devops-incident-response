@@ -230,6 +230,12 @@ class EasyTask(BaseTask):
         if at == ActionType.NOOP and state.step > 3:
             reward -= 0.04
 
+
+        if at in (ActionType.BLOCK_IP_RANGE, ActionType.CREATE_INDEX, ActionType.FAILOVER) or str(at) in ("block_ip_range", "create_index", "failover"):
+            reward -= 0.10
+            error_text = f"Action {at} is not applicable to this incident."
+
+
         state.total_reward = self._clamp(state.total_reward + reward)
         if state.step >= state.max_steps and not done:
             done = True

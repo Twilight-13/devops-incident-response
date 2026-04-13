@@ -20,11 +20,14 @@ class DevOpsIncidentEnv:
     """
     OpenEnv-compliant environment for DevOps incident response.
 
-    Four tasks of escalating difficulty:
-      easy   - Single service OOM (rotating service by seed)
-      medium - Cascading failure from bad deployment (red-herring alert)
-      hard   - Silent data corruption, no error-rate alerts
-      bonus  - Two simultaneous independent failures, both must be fixed
+    Seven tasks of escalating and diverse difficulty:
+      easy     - Single service OOM (rotating service by seed)
+      medium   - Cascading failure from bad deployment (red-herring alert)
+      hard     - Silent data corruption, no error-rate alerts
+      bonus    - Two simultaneous independent failures, both must be fixed
+      security - DDoS attack mitigation (blocking IPs)
+      database - Missing indexes leading to performance degradation
+      failover - Multi-region partition with partial failover constraints
     """
 
     def __init__(self, task_id: str = "easy", seed: Optional[int] = None):
