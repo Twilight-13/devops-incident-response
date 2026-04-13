@@ -4,7 +4,7 @@ description: >
   A reinforcement learning environment where AI agents learn to diagnose and
   remediate production software incidents. Agents read logs, metrics, and
   alerts across a simulated microservices architecture, then take remediation
-  actions such as rollbacks, restarts, and on-call escalations. Four tasks
+  actions such as rollbacks, restarts, and on-call escalations. Seven tasks
   of escalating difficulty — from a clear memory leak to silent data
   corruption with no error-rate alerts — provide a meaningful difficulty
   progression for benchmarking agent reasoning quality.

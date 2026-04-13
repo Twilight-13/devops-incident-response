@@ -14,6 +14,21 @@ sdk: docker
 # DevOps Incident Response — OpenEnv
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Twilight-13/devops-incident-response/blob/main/train_grpo.ipynb)
+[![HF Space](https://img.shields.io/badge/HuggingFace-Space-orange)](https://huggingface.co/spaces/Arijit-07/devops-incident-response)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
+
+## Quick Start
+
+```python
+pip install git+https://github.com/Twilight-13/devops-incident-response.git
+
+from devops_incident_response import DevOpsIncidentEnv, Action, ActionType
+
+with DevOpsIncidentEnv(base_url="https://arijit-07-devops-incident-response.hf.space").sync() as env:
+    obs = env.reset(task_id="easy")
+    result = env.step(Action(action_type=ActionType.READ_LOGS, service="payment-service"))
+    print(f"Reward: {result.reward}")
+```
 
 An OpenEnv-compliant reinforcement learning environment where AI agents learn
 to diagnose and remediate production software incidents across a simulated
@@ -24,11 +39,14 @@ rollbacks, restarts, and on-call escalations. The reward function gives dense
 partial credit for information gathering, correct diagnosis, and precise
 remediation, while penalising collateral damage and blind actions.
 
-**Four tasks of escalating difficulty:**
+**Seven tasks of escalating difficulty:**
 - **Easy** — single service OOM crash-loop (which service varies by seed)
 - **Medium** — cascading failure from bad deployment with a red-herring alert
 - **Hard** — silent data corruption with no error-rate alerts, only business metric anomalies
 - **Bonus** — two simultaneous independent failures, both must be fixed
+- **Security** — botnet DDoS attack requiring IP blocking
+- **Database** — missing schema index causing DB degradation
+- **Failover** — partial region failure requiring precise multi-region failover
 
 ---
 
@@ -81,7 +99,7 @@ graph TD
 
 ### What Makes This Hard
 
-The four tasks are designed to require qualitatively different 
+The seven tasks are designed to require qualitatively different 
 reasoning strategies:
 
 - **Easy**: Direct signal reading — logs clearly show OOM, fix is obvious
@@ -134,6 +152,9 @@ and exact metric values.
 | `alert_oncall` | `reason` (str) | Page the on-call engineering team |
 | `acknowledge` | `service` (alert id) | Acknowledge an active alert |
 | `noop` | — | Take no action |
+| `block_ip_range` | `service`, `ip_range` | Block a CIDR IP range (DDoS mitigation) |
+| `create_index` | `table`, `column` | Create a missing database index |
+| `failover` | `service`, `target_region` | Fail over a service to another region |
 
 ---
 
@@ -226,6 +247,27 @@ alert_oncall for disk cleanup AND rollback/restart ml-inference.
 
 ---
 
+### Task 5 — Security Incident Response (DDoS Attack)
+**Max steps:** 20 | **Expected strong LLM score:** 0.40–0.60
+
+A botnet is targeting the login endpoint with 12,000 req/s from the 185.x.x.x IP range. Standard rate limiting is ineffective (distributed attack). Agent must identify the attack pattern in access logs, diagnose the DDoS, block the IP range, and alert the security team. Neither restart nor rollback helps — wrong actions are penalized.
+
+---
+
+### Task 6 — Database Performance Degradation
+**Max steps:** 20 | **Expected strong LLM score:** 0.45–0.65
+
+A schema migration added a column without an index. All services reading that table degrade. Agent must read postgres slow query logs, identify the sequential table scan, and either create the missing index or rollback the migration. Restarting services does nothing.
+
+---
+
+### Task 7 — Multi-Region Failover (Partial)
+**Max steps:** 25 | **Expected strong LLM score:** 0.35–0.55
+
+A network partition affects us-east-1. Four services support automatic failover to us-west-2 and should be switched. Two services (payment-service, postgres-primary) must NOT be failed over — payment due to PCI compliance, postgres due to replication lag causing data loss. Incorrectly failing over the wrong services incurs a heavy -0.25 penalty.
+
+---
+
 ## Reward Function Design
 
 ```
@@ -308,9 +350,26 @@ Run with `meta-llama/Llama-3.3-70B-Instruct`, seed=42, temperature=0.1:
 | medium | 0.6800 | ✓ | 9 |
 | hard | 0.3500 | ✗ | 25 |
 | bonus | 0.3800 | ✗ | 25 |
+| security | 0.00 | run inference.py to reproduce | 20 |
+| database | 0.00 | run inference.py to reproduce | 20 |
+| failover | 0.00 | run inference.py to reproduce | 25 |
 | **average** | **0.6025** | — | — |
 
 *Scores vary with model and temperature. Run with seed=42 for reproducibility.*
+
+---
+
+## RL Training Integration
+
+This environment is designed for GRPO and other policy gradient methods.
+See the training notebook for a full example:
+
+```bash
+git clone https://github.com/Twilight-13/devops-incident-response
+jupyter notebook train_grpo.ipynb
+```
+
+Compatible with: TRL, SkyRL, ART, Oumi, Axolotl.
 
 ---
 
@@ -322,8 +381,11 @@ Run with `meta-llama/Llama-3.3-70B-Instruct`, seed=42, temperature=0.1:
 | `/reset` | POST | `{"task_id": "easy", "seed": 42}` | Start new episode |
 | `/step` | POST | `Action` JSON | Take one action |
 | `/state` | GET | — | Full state + ground truth + analytics |
-| `/tasks` | GET | — | List all 4 tasks |
+| `/tasks` | GET | — | List all 7 tasks |
 | `/validate` | GET | — | Self-validation report for all tasks |
+| `/ws` | WebSocket | - | Real-time agent-environment communication |
+| `/metrics` | GET | - | Aggregate episode statistics |
+| `/leaderboard` | GET | - | Top scoring episodes |
 
 ---
 
@@ -334,7 +396,7 @@ openenv validate .
 ```
 
 All endpoints comply with the OpenEnv spec. `openenv.yaml` contains full
-metadata including 4 task definitions, action/observation space descriptions,
+metadata including 7 task definitions, action/observation space descriptions,
 expected score ranges, and Docker configuration.
 
 ---
