@@ -6,6 +6,50 @@ from pydantic import BaseModel
 from typing import Optional
 from env import DevOpsIncidentEnv
 from models import Action, ActionType, Observation, StepResult, State
+from collections import deque
+from datetime import datetime
+import uuid
+import statistics
+
+episode_history = deque(maxlen=1000)
+
+def track_episode(state_obj: State):
+    from graders.grader import grade_episode
+    score = grade_episode(
+        task_id=state_obj.task_id,
+        action_history=state_obj.action_history,
+        ground_truth_root_cause=state_obj.ground_truth_root_cause,
+        ground_truth_fix=state_obj.ground_truth_fix,
+        incident_resolved=state_obj.incident_resolved,
+        total_reward=state_obj.total_reward
+    )
+    
+    info_actions = {"read_logs", "read_metrics", "read_runbook", "search_logs"}
+    info_count = 0
+    diag_step = None
+    
+    for act in state_obj.action_history:
+        at = act["action"].get("action_type")
+        if at in info_actions:
+            info_count += 1
+        if at == "diagnose" and diag_step is None:
+            diag_step = act["step"]
+            
+    info_ratio = info_count / len(state_obj.action_history) if state_obj.action_history else 0.0
+    seed = state_obj.info.get("seed", 42)
+    
+    record = {
+        "episode_id": state_obj.episode_id or str(uuid.uuid4()),
+        "task_id": state_obj.task_id,
+        "seed": seed,
+        "steps_taken": state_obj.step,
+        "incident_resolved": state_obj.incident_resolved,
+        "final_score": float(score),
+        "steps_to_diagnosis": diag_step,
+        "info_gathering_ratio": float(info_ratio),
+        "timestamp": datetime.utcnow().isoformat() + "Z"
+    }
+    episode_history.append(record)
 
 app = FastAPI(
     title="DevOps Incident Response — OpenEnv",
@@ -191,7 +235,9 @@ def dashboard():
         Auto-refreshes every 10 seconds &nbsp;|&nbsp; 
         <a href="/docs" style="color:#ff6b35;">API Docs</a> &nbsp;|&nbsp;
         <a href="/validate" style="color:#ff6b35;">Run Validation</a> &nbsp;|&nbsp;
-        <a href="/health" style="color:#ff6b35;">Health Check</a>
+        <a href="/health" style="color:#ff6b35;">Health Check</a> &nbsp;|&nbsp;
+        <a href="/metrics" style="color:#ff6b35;">Metrics</a> &nbsp;|&nbsp;
+        <a href="/leaderboard" style="color:#ff6b35;">Leaderboard</a>
     </div>
 </body>
 </html>"""
@@ -221,7 +267,10 @@ def reset(req: Optional[ResetRequest] = None):
 def step(action: Action):
     if _env is None:
         raise HTTPException(status_code=400, detail="Call /reset before /step")
-    return _env.step(action)
+    res = _env.step(action)
+    if res.done:
+        track_episode(_env.state())
+    return res
 
 
 @app.get("/state", response_model=State)
@@ -347,3 +396,66 @@ def validate():
 
     all_ok = all(r.get("status") == "ok" and r.get("in_range") for r in results)
     return {"validation": "passed" if all_ok else "failed", "tasks": results}
+
+
+@app.get("/metrics")
+def get_metrics():
+    total_episodes = len(episode_history)
+    by_task = {}
+    total_score = 0.0
+    
+    if total_episodes == 0:
+        return {
+            "total_episodes": 0,
+            "by_task": {},
+            "overall_avg_score": 0.0,
+            "last_updated": datetime.utcnow().isoformat() + "Z"
+        }
+        
+    for rec in episode_history:
+        tid = rec["task_id"]
+        if tid not in by_task:
+            by_task[tid] = {"scores": [], "resolved": 0, "steps_to_diag": [], "info_ratios": []}
+            
+        by_task[tid]["scores"].append(rec["final_score"])
+        if rec["incident_resolved"]:
+            by_task[tid]["resolved"] += 1
+        if rec["steps_to_diagnosis"] is not None:
+            by_task[tid]["steps_to_diag"].append(rec["steps_to_diagnosis"])
+        by_task[tid]["info_ratios"].append(rec["info_gathering_ratio"])
+        total_score += rec["final_score"]
+        
+    out_by_task = {}
+    for tid, agg in by_task.items():
+        cnt = len(agg["scores"])
+        out_by_task[tid] = {
+            "count": cnt,
+            "avg_score": round(sum(agg["scores"]) / cnt, 3),
+            "max_score": round(max(agg["scores"]), 3),
+            "min_score": round(min(agg["scores"]), 3),
+            "resolution_rate": round(agg["resolved"] / cnt, 3),
+            "avg_steps_to_diagnosis": round(sum(agg["steps_to_diag"]) / len(agg["steps_to_diag"]), 1) if agg["steps_to_diag"] else None,
+            "avg_info_gathering_ratio": round(sum(agg["info_ratios"]) / len(agg["info_ratios"]), 2) if agg["info_ratios"] else 0.0
+        }
+        
+    return {
+        "total_episodes": total_episodes,
+        "by_task": out_by_task,
+        "overall_avg_score": round(total_score / total_episodes, 3),
+        "last_updated": datetime.utcnow().isoformat() + "Z"
+    }
+
+
+@app.get("/leaderboard")
+def get_leaderboard():
+    sorted_eps = sorted(episode_history, key=lambda x: (x["final_score"], -x["steps_taken"]), reverse=True)
+    top_10 = []
+    for i, rec in enumerate(sorted_eps[:10]):
+        top_10.append({
+            "rank": i + 1,
+            "task_id": rec["task_id"],
+            "score": rec["final_score"],
+            "steps": rec["steps_taken"],
+            "timestamp": rec["timestamp"]
+        })
+    return {"leaderboard": top_10}

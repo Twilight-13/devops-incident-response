@@ -179,3 +179,5 @@ docker:
   reset_endpoint: /reset
   step_endpoint: /step
   state_endpoint: /state
+  metrics_endpoint: /metrics
+  leaderboard_endpoint: /leaderboard
