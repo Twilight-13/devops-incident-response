@@ -4,14 +4,20 @@ from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
+from curriculum import CurriculumEngine
 from env import DevOpsIncidentEnv
 from models import Action, ActionType, Observation, StepResult, State
 from collections import deque
 from datetime import datetime
 import uuid
 import statistics
+from generator import IncidentFactory
+from tasks.task_generated import GeneratedTask
 
+curriculum_engine = CurriculumEngine()
+episode_tracker: dict = {}  # tracks active episode task_id per session
 episode_history = deque(maxlen=1000)
+_factory = IncidentFactory()
 
 def track_episode(state_obj: State):
     from graders.grader import grade_episode
@@ -56,8 +62,9 @@ app = FastAPI(
     description=(
         "An OpenEnv-compliant RL environment where AI agents diagnose and remediate "
         "production software incidents across a simulated microservices architecture. "
-        "Four tasks: easy (OOM), medium (cascade), hard (silent corruption), "
-        "bonus (dual simultaneous failure)."
+        "Seven tasks of escalating difficulty: OOM crash-loop, cascading failure, "
+        "silent data corruption, dual simultaneous failure, DDoS attack, database "
+        "degradation, and multi-region failover."
     ),
     version="1.0.0",
 )
@@ -76,6 +83,11 @@ _env: Optional[DevOpsIncidentEnv] = None
 class ResetRequest(BaseModel):
     task_id: str = "easy"
     seed: Optional[int] = None
+
+
+class CurriculumRecordRequest(BaseModel):
+    task_id: str
+    score: float
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -134,6 +146,29 @@ def dashboard():
         .task {{ background: #1a1d27; border: 1px solid #2d3148; border-radius: 8px; padding: 1.25rem; }}
         .task h3 {{ margin: 0 0 0.5rem; color: #ff6b35; font-size: 1rem; }}
         .task p {{ margin: 0; color: #aaa; font-size: 0.85rem; line-height: 1.5; }}
+        .curriculum-section {{ background: #121621; border: 1px solid #2d3148; border-radius: 10px; padding: 1.25rem; margin-bottom: 2rem; }}
+        .curriculum-section h3 {{ margin: 0 0 0.35rem; color: #fff; }}
+        .curriculum-section p {{ margin: 0 0 1rem; color: #7f8799; font-size: 0.85rem; }}
+        .curriculum-meta {{ color: #9aa4b2; font-size: 0.8rem; margin-bottom: 0.75rem; }}
+        .curriculum-table {{ display: flex; flex-direction: column; gap: 0.65rem; }}
+        .curriculum-header, .curriculum-row {{ display: grid; grid-template-columns: minmax(90px, 1fr) 110px minmax(180px, 1.4fr) minmax(160px, 1fr); gap: 1rem; align-items: center; }}
+        .curriculum-header {{ color: #7f8799; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; padding-bottom: 0.35rem; border-bottom: 1px solid #273042; }}
+        .curriculum-row {{ background: #171c29; border: 1px solid #242d40; border-radius: 8px; padding: 0.9rem 1rem; }}
+        .curriculum-task-name {{ font-weight: 600; color: #f5f7fa; text-transform: capitalize; }}
+        .curriculum-stars {{ font-size: 1rem; letter-spacing: 0.12em; color: #ffd166; }}
+        .curriculum-bar-wrap {{ display: flex; align-items: center; gap: 0.75rem; }}
+        .curriculum-bar {{ flex: 1; height: 0.7rem; background: #222a3b; border-radius: 999px; overflow: hidden; border: 1px solid #303a4f; }}
+        .curriculum-fill {{ height: 100%; border-radius: 999px; transition: width 0.3s ease; }}
+        .curriculum-score {{ min-width: 3rem; text-align: right; color: #d5dbe3; font-size: 0.8rem; font-variant-numeric: tabular-nums; }}
+        .curriculum-badges {{ display: flex; gap: 0.5rem; flex-wrap: wrap; justify-content: flex-start; }}
+        .curriculum-pill {{ display: inline-block; padding: 0.25rem 0.6rem; border-radius: 999px; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.04em; }}
+        .scaffold-pill {{ background: rgba(239, 83, 80, 0.18); color: #ff8a80; border: 1px solid rgba(239, 83, 80, 0.35); }}
+        .recommended-pill {{ background: rgba(102, 187, 106, 0.18); color: #8de28f; border: 1px solid rgba(102, 187, 106, 0.35); }}
+        .curriculum-loading, .curriculum-error {{ color: #9aa4b2; font-size: 0.9rem; padding: 0.25rem 0; }}
+        @media (max-width: 900px) {{
+            .curriculum-header {{ display: none; }}
+            .curriculum-row {{ grid-template-columns: 1fr; gap: 0.7rem; }}
+        }}
         .badge {{ display: inline-block; padding: 0.2rem 0.6rem; border-radius: 4px; font-size: 0.7rem; font-weight: 600; margin-bottom: 0.5rem; }}
         .easy {{ background: #1a3a1a; color: #4caf50; }}
         .medium {{ background: #3a2a1a; color: #ff9800; }}
@@ -149,6 +184,12 @@ def dashboard():
         .path {{ color: #81c784; font-family: monospace; font-size: 0.85rem; }}
         .desc {{ color: #888; font-size: 0.8rem; }}
         .footer {{ color: #555; font-size: 0.8rem; text-align: center; margin-top: 2rem; }}
+        #incident-generator {{ background: #1a1d27; border: 1px solid #2d3148; border-radius: 8px; padding: 1.5rem; margin-bottom: 2rem; }}
+        #incident-result {{ margin-top: 1.5rem; padding: 1rem; background: #0f1117; border-radius: 6px; border-left: 4px solid #ff6b35; }}
+        .badge-mono {{ font-family: monospace; background: #333; padding: 0.1rem 0.4rem; border-radius: 3px; font-size: 0.85rem; }}
+        .difficulty-bar-container {{ height: 8px; background: #333; border-radius: 4px; margin: 10px 0; }}
+        .difficulty-bar {{ height: 100%; border-radius: 4px; transition: width 0.5s ease; }}
+        .tag {{ font-size: 0.75rem; color: #888; background: #222; padding: 0.1rem 0.4rem; border-radius: 10px; margin-right: 5px; }}
     </style>
 </head>
 <body>
@@ -196,6 +237,41 @@ def dashboard():
             <p>Partial region failure. Discriminate between services that support auto-failover and those that require human escalation. Max 25 steps.</p>
         </div>
     </div>
+
+    <div id="incident-generator">
+        <h3 style="margin-top:0; color:#ff6b35;">ARIA Incident Generator</h3>
+        <div style="display:flex; gap:10px; align-items:center;">
+            <input type="number" id="seed-input" min="0" max="99999" value="42" 
+                   style="background:#0f1117; color:#fff; border:1px solid #2d3148; padding:8px; border-radius:4px; width:100px;">
+            <button onclick="generateIncident()" 
+                    style="background:#ff6b35; color:#fff; border:none; padding:8px 16px; border-radius:4px; cursor:pointer; font-weight:600;">
+                Generate Incident
+            </button>
+        </div>
+        <div id="incident-result" style="display:none;">
+            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
+                <span id="res-id" class="badge-mono"></span>
+                <div id="res-badges"></div>
+            </div>
+            <p id="res-affected" style="margin:5px 0; font-weight:600;"></p>
+            <div class="difficulty-bar-container">
+                <div id="res-diff-bar" class="difficulty-bar"></div>
+            </div>
+            <p id="res-desc" style="margin:10px 0; line-height:1.4; color:#ccc;"></p>
+            <div id="res-noise" style="margin-bottom:15px;"></div>
+            <p style="font-size:0.75rem; color:#555; font-family:monospace; margin:0;">
+                Use with: POST /reset body {{"task_id":"generated","seed":<span id="res-seed-val"></span>}}
+            </p>
+        </div>
+    </div>
+
+    <div class="curriculum-section">
+        <h3>ARIA Curriculum Status</h3>
+        <p>Live mastery tracking across the seven incident types.</p>
+        <div id="curriculum-status">
+            <div class="curriculum-loading">Loading curriculum status...</div>
+        </div>
+    </div>
     
     <div class="endpoints">
         <h3>API Endpoints</h3>
@@ -222,7 +298,7 @@ def dashboard():
         <div class="endpoint">
             <span class="method">GET</span>
             <span class="path">/validate</span>
-            <span class="desc">Self-validation report for all 4 tasks</span>
+            <span class="desc">Self-validation report for all 7 tasks</span>
         </div>
         <div class="endpoint">
             <span class="method">GET</span>
@@ -239,6 +315,118 @@ def dashboard():
         <a href="/metrics" style="color:#ff6b35;">Metrics</a> &nbsp;|&nbsp;
         <a href="/leaderboard" style="color:#ff6b35;">Leaderboard</a>
     </div>
+    <script>
+        const curriculumContainer = document.getElementById("curriculum-status");
+
+        function masteryStars(level) {{
+            return "★".repeat(level) + "☆".repeat(3 - level);
+        }}
+
+        function avgColor(avg) {{
+            if (avg < 0.3) {{
+                return "#ef5350";
+            }}
+            if (avg < 0.6) {{
+                return "#ffd54f";
+            }}
+            return "#66bb6a";
+        }}
+
+        function renderCurriculumStatus(payload) {{
+            const tasks = payload.tasks || {{}};
+            const recommendedTask = payload.recommended_task;
+            const rows = Object.entries(tasks).map(([taskId, task]) => {{
+                const avg = Number(task.rolling_avg || 0);
+                const width = Math.max(0, Math.min(100, avg * 100));
+                const badges = [];
+                if (task.scaffold_needed) {{
+                    badges.push('<span class="curriculum-pill scaffold-pill">SCAFFOLD</span>');
+                }}
+                if (taskId === recommendedTask) {{
+                    badges.push('<span class="curriculum-pill recommended-pill">RECOMMENDED</span>');
+                }}
+
+                return `
+                    <div class="curriculum-row">
+                        <div class="curriculum-task-name">${{taskId}}</div>
+                        <div class="curriculum-stars" title="${{task.mastery_label}}">${{masteryStars(task.mastery_level)}}</div>
+                        <div class="curriculum-bar-wrap">
+                            <div class="curriculum-bar">
+                                <div class="curriculum-fill" style="width:${{width}}%; background:${{avgColor(avg)}};"></div>
+                            </div>
+                            <div class="curriculum-score">${{avg.toFixed(2)}}</div>
+                        </div>
+                        <div class="curriculum-badges">${{badges.join("")}}</div>
+                    </div>
+                `;
+            }}).join("");
+
+            curriculumContainer.innerHTML = `
+                <div class="curriculum-meta">Total episodes recorded: ${{payload.total_episodes_recorded}}</div>
+                <div class="curriculum-table">
+                    <div class="curriculum-header">
+                        <div>Task</div>
+                        <div>Mastery</div>
+                        <div>Rolling Avg</div>
+                        <div>Status</div>
+                    </div>
+                    ${{rows}}
+                </div>
+            `;
+        }}
+
+        async function refreshCurriculumStatus() {{
+            try {{
+                const response = await fetch("/curriculum/status");
+                if (!response.ok) {{
+                    throw new Error("Failed to load curriculum status");
+                }}
+                const payload = await response.json();
+                renderCurriculumStatus(payload);
+            }} catch (error) {{
+                curriculumContainer.innerHTML = '<div class="curriculum-error">Curriculum status unavailable.</div>';
+            }}
+        }}
+
+        refreshCurriculumStatus();
+        setInterval(refreshCurriculumStatus, 15000);
+
+        function generateIncident() {{
+            const seed = document.getElementById('seed-input').value;
+            fetch(`/generate/preview?seed=${{seed}}`)
+                .then(r => r.json())
+                .then(data => {{
+                    document.getElementById('res-id').innerText = data.incident_id;
+                    document.getElementById('res-seed-val').innerText = seed;
+                    document.getElementById('res-affected').innerText = "Affected: " + data.affected_service;
+                    document.getElementById('res-desc').innerText = data.description;
+                    
+                    const modeColors = {{
+                        oom: "#f44336", cascade: "#ff9800", corruption: "#9c27b0", 
+                        security: "#ffeb3b", database: "#4fc3f7", network_partition: "#009688"
+                    }};
+                    const sevColors = {{ sev1: "#f44336", sev2: "#ff9800", sev3: "#ffeb3b" }};
+                    
+                    document.getElementById('res-badges').innerHTML = `
+                        <span class="badge" style="background:${{modeColors[data.failure_mode]}}; color:#000; margin-right:5px;">${{data.failure_mode.toUpperCase()}}</span>
+                        <span class="badge" style="background:${{sevColors[data.severity]}}; color:#000;">${{data.severity.toUpperCase()}}</span>
+                    `;
+                    
+                    const diffBar = document.getElementById('res-diff-bar');
+                    diffBar.style.width = (data.difficulty_score * 100) + "%";
+                    diffBar.style.background = avgColor(data.difficulty_score);
+                    
+                    const noiseDiv = document.getElementById('res-noise');
+                    if (data.noise_alerts.length === 0) {{
+                        noiseDiv.innerHTML = '<span style="font-size:0.8rem; color:#555;">No noise alerts</span>';
+                    }} else {{
+                        noiseDiv.innerHTML = data.noise_alerts.map(n => `<span class="tag">${{n}}</span>`).join("");
+                    }}
+                    
+                    document.getElementById('incident-result').style.display = 'block';
+                }});
+        }}
+    </script>
 </body>
 </html>"""
     return html
@@ -249,18 +437,38 @@ def health():
     return {"status": "ok", "env": "devops-incident-response", "version": "1.0.0"}
 
 
+@app.get("/generate/preview")
+def preview_incident(seed: int = 42):
+    return _factory.generate(seed)
+
+
 @app.post("/reset", response_model=Observation)
 def reset(req: Optional[ResetRequest] = None):
     if req is None:
         req = ResetRequest()
     global _env
-    if req.task_id not in VALID_TASKS:
-        raise HTTPException(
-            status_code=400,
-            detail=f"task_id must be one of {VALID_TASKS}. Got: {req.task_id}",
-        )
-    _env = DevOpsIncidentEnv(task_id=req.task_id, seed=req.seed)
-    return _env.reset()
+    
+    if req.task_id == "generated":
+        seed = req.seed if req.seed is not None else 42
+        incident = _factory.generate(seed)
+        task = GeneratedTask(incident_dict=incident)
+        state = task.initialize()
+        _env = DevOpsIncidentEnv(task_id="easy", seed=seed)
+        _env.task_id = "generated"
+        _env._task = task
+        _env._internal_state = state
+        observation = state._build_observation()
+    else:
+        if req.task_id not in VALID_TASKS:
+            raise HTTPException(
+                status_code=400,
+                detail=f"task_id must be one of {VALID_TASKS}. Got: {req.task_id}",
+            )
+        _env = DevOpsIncidentEnv(task_id=req.task_id, seed=req.seed)
+        observation = _env.reset()
+    
+    episode_tracker[_env.state().episode_id] = req.task_id
+    return observation
 
 
 @app.post("/step", response_model=StepResult)
@@ -269,7 +477,21 @@ def step(action: Action):
         raise HTTPException(status_code=400, detail="Call /reset before /step")
     res = _env.step(action)
     if res.done:
-        track_episode(_env.state())
+        from graders.grader import grade_episode
+
+        current_state = _env.state()
+        current_task_id = episode_tracker.get(current_state.episode_id, current_state.task_id)
+        final_score = grade_episode(
+            task_id=current_task_id,
+            action_history=current_state.action_history,
+            ground_truth_root_cause=current_state.ground_truth_root_cause,
+            ground_truth_fix=current_state.ground_truth_fix,
+            incident_resolved=current_state.incident_resolved,
+            total_reward=current_state.total_reward,
+        )
+        curriculum_engine.record_episode(current_task_id, float(final_score))
+        episode_tracker.pop(current_state.episode_id, None)
+        track_episode(current_state)
     return res
 
 
@@ -352,8 +574,53 @@ def list_tasks():
                     "and which do not. Failing over the wrong services causes severe data inconsistency penalties."
                 ),
             },
+            {
+                "id": "generated",
+                "name": "Procedural Incident",
+                "difficulty": "variable",
+                "max_steps": 20,
+                "description": "Procedurally generated incident. Use with any seed 0-99999 for infinite unique scenarios.",
+            },
         ]
     }
+
+
+@app.get("/curriculum/status")
+def get_curriculum_status():
+    return curriculum_engine.get_status()
+
+
+@app.get("/curriculum/next")
+def get_next_curriculum_task():
+    return {
+        "recommended_task": curriculum_engine.get_next_curriculum_task(),
+        "reasoning": "Lowest rolling average among non-mastered tasks.",
+    }
+
+
+@app.post("/curriculum/record")
+def record_curriculum_episode(req: CurriculumRecordRequest):
+    try:
+        curriculum_engine.record_episode(req.task_id, req.score)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {
+        "recorded": True,
+        "new_status": curriculum_engine.get_status()["tasks"][req.task_id],
+    }
+
+
+@app.get("/curriculum/hint/{task_id}")
+def get_curriculum_hint(task_id: str):
+    try:
+        return {
+            "task_id": task_id,
+            "hint": curriculum_engine.get_hint(task_id),
+            "scaffold_needed": curriculum_engine.should_scaffold(task_id),
+            "mastery_level": curriculum_engine.get_mastery(task_id),
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
 
 
 @app.get("/validate")

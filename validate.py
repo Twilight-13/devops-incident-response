@@ -68,7 +68,7 @@ def main():
 
     def check_reset_all_tasks():
         from env import DevOpsIncidentEnv
-        for task_id in ["easy", "medium", "hard", "bonus"]:
+        for task_id in ["easy", "medium", "hard", "bonus", "security", "database", "failover"]:
             env = DevOpsIncidentEnv(task_id=task_id, seed=42)
             obs = env.reset()
             assert obs.task_id == task_id, f"task_id mismatch for {task_id}"
@@ -121,7 +121,7 @@ def main():
         from env import DevOpsIncidentEnv
         from models import Action, ActionType
         rng = random.Random(0)
-        for task_id in ["easy", "medium", "hard", "bonus"]:
+        for task_id in ["easy", "medium", "hard", "bonus", "security", "database", "failover"]:
             env = DevOpsIncidentEnv(task_id=task_id, seed=42)
             env.reset()
             done = False
@@ -177,7 +177,7 @@ def main():
         from models import Action, ActionType
         from graders.grader import grade_episode
         rng = random.Random(99)
-        for task_id in ["easy", "medium", "hard", "bonus"]:
+        for task_id in ["easy", "medium", "hard", "bonus", "security", "database", "failover"]:
             env = DevOpsIncidentEnv(task_id=task_id, seed=42)
             env.reset()
             done = False
