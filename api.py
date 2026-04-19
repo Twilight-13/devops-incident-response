@@ -92,344 +92,441 @@ class CurriculumRecordRequest(BaseModel):
 
 @app.get("/", response_class=HTMLResponse)
 def dashboard():
-    env_state = None
-    if _env is not None:
-        try:
-            s = _env.state()
-            env_state = s
-        except Exception:
-            pass
-    
-    task_info = ""
-    if env_state:
-        task_info = f"""
-        <div class="stat">
-            <span class="label">Current Task</span>
-            <span class="value">{env_state.task_id.upper()}</span>
-        </div>
-        <div class="stat">
-            <span class="label">Step</span>
-            <span class="value">{env_state.step} / {env_state.current_observation.max_steps}</span>
-        </div>
-        <div class="stat">
-            <span class="label">Score So Far</span>
-            <span class="value">{env_state.info.get('current_score', 0):.3f}</span>
-        </div>
-        <div class="stat">
-            <span class="label">Resolved</span>
-            <span class="value">{'YES' if env_state.incident_resolved else 'NO'}</span>
-        </div>
-        <div class="stat">
-            <span class="label">Evidence Gathered</span>
-            <span class="value">{len(env_state.current_observation.evidence_log)} items</span>
-        </div>
-        """
-    else:
-        task_info = '<div class="stat"><span class="label">Status</span><span class="value">No active episode — call /reset to start</span></div>'
-    
     html = f"""<!DOCTYPE html>
 <html>
 <head>
-    <title>DevOps Incident Response — OpenEnv</title>
+    <title>ARIA — DevOps Incident Response</title>
     <meta charset="utf-8">
-    <meta http-equiv="refresh" content="10">
     <style>
-        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
-               background: #0f1117; color: #e0e0e0; margin: 0; padding: 2rem; }}
-        h1 {{ color: #ff6b35; font-size: 1.8rem; margin-bottom: 0.25rem; }}
-        h2 {{ color: #888; font-size: 1rem; font-weight: 400; margin-bottom: 2rem; }}
-        .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 2rem; }}
-        .stat {{ background: #1a1d27; border: 1px solid #2d3148; border-radius: 8px; padding: 1.25rem; }}
-        .label {{ display: block; color: #888; font-size: 0.75rem; text-transform: uppercase; letter-spacing: 0.05em; margin-bottom: 0.5rem; }}
-        .value {{ display: block; font-size: 1.4rem; font-weight: 600; color: #fff; }}
-        .tasks {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 1rem; margin-bottom: 2rem; }}
-        .task {{ background: #1a1d27; border: 1px solid #2d3148; border-radius: 8px; padding: 1.25rem; }}
-        .task h3 {{ margin: 0 0 0.5rem; color: #ff6b35; font-size: 1rem; }}
-        .task p {{ margin: 0; color: #aaa; font-size: 0.85rem; line-height: 1.5; }}
-        .curriculum-section {{ background: #121621; border: 1px solid #2d3148; border-radius: 10px; padding: 1.25rem; margin-bottom: 2rem; }}
-        .curriculum-section h3 {{ margin: 0 0 0.35rem; color: #fff; }}
-        .curriculum-section p {{ margin: 0 0 1rem; color: #7f8799; font-size: 0.85rem; }}
-        .curriculum-meta {{ color: #9aa4b2; font-size: 0.8rem; margin-bottom: 0.75rem; }}
-        .curriculum-table {{ display: flex; flex-direction: column; gap: 0.65rem; }}
-        .curriculum-header, .curriculum-row {{ display: grid; grid-template-columns: minmax(90px, 1fr) 110px minmax(180px, 1.4fr) minmax(160px, 1fr); gap: 1rem; align-items: center; }}
-        .curriculum-header {{ color: #7f8799; font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.08em; padding-bottom: 0.35rem; border-bottom: 1px solid #273042; }}
-        .curriculum-row {{ background: #171c29; border: 1px solid #242d40; border-radius: 8px; padding: 0.9rem 1rem; }}
-        .curriculum-task-name {{ font-weight: 600; color: #f5f7fa; text-transform: capitalize; }}
-        .curriculum-stars {{ font-size: 1rem; letter-spacing: 0.12em; color: #ffd166; }}
-        .curriculum-bar-wrap {{ display: flex; align-items: center; gap: 0.75rem; }}
-        .curriculum-bar {{ flex: 1; height: 0.7rem; background: #222a3b; border-radius: 999px; overflow: hidden; border: 1px solid #303a4f; }}
-        .curriculum-fill {{ height: 100%; border-radius: 999px; transition: width 0.3s ease; }}
-        .curriculum-score {{ min-width: 3rem; text-align: right; color: #d5dbe3; font-size: 0.8rem; font-variant-numeric: tabular-nums; }}
-        .curriculum-badges {{ display: flex; gap: 0.5rem; flex-wrap: wrap; justify-content: flex-start; }}
-        .curriculum-pill {{ display: inline-block; padding: 0.25rem 0.6rem; border-radius: 999px; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.04em; }}
-        .scaffold-pill {{ background: rgba(239, 83, 80, 0.18); color: #ff8a80; border: 1px solid rgba(239, 83, 80, 0.35); }}
-        .recommended-pill {{ background: rgba(102, 187, 106, 0.18); color: #8de28f; border: 1px solid rgba(102, 187, 106, 0.35); }}
-        .curriculum-loading, .curriculum-error {{ color: #9aa4b2; font-size: 0.9rem; padding: 0.25rem 0; }}
-        @media (max-width: 900px) {{
-            .curriculum-header {{ display: none; }}
-            .curriculum-row {{ grid-template-columns: 1fr; gap: 0.7rem; }}
+        :root {{
+            --bg: #0d1117;
+            --accent: #58a6ff;
+            --card-bg: #161b22;
+            --border: #30363d;
+            --text: #c9d1d9;
+            --green: #3fb950;
+            --red: #f85149;
+            --yellow: #d29922;
+            --grey: #8b949e;
+            --purple: #bc8cff;
+            --blue: #79c0ff;
+            --teal: #7ee787;
         }}
-        .badge {{ display: inline-block; padding: 0.2rem 0.6rem; border-radius: 4px; font-size: 0.7rem; font-weight: 600; margin-bottom: 0.5rem; }}
-        .easy {{ background: #1a3a1a; color: #4caf50; }}
-        .medium {{ background: #3a2a1a; color: #ff9800; }}
-        .hard {{ background: #3a1a1a; color: #f44336; }}
-        .bonus {{ background: #1a1a3a; color: #9c27b0; }}
-        .security {{ background: #3a1a1a; color: #ff5252; }}
-        .database {{ background: #1a2c3a; color: #4fc3f7; }}
-        .failover {{ background: #3a1a3a; color: #ffeb3b; }}
-        .endpoints {{ background: #1a1d27; border: 1px solid #2d3148; border-radius: 8px; padding: 1.25rem; margin-bottom: 2rem; }}
-        .endpoints h3 {{ margin: 0 0 1rem; color: #fff; }}
-        .endpoint {{ display: flex; align-items: center; gap: 0.75rem; margin-bottom: 0.5rem; }}
-        .method {{ background: #1e3a5f; color: #64b5f6; padding: 0.15rem 0.5rem; border-radius: 4px; font-size: 0.75rem; font-weight: 600; font-family: monospace; }}
-        .path {{ color: #81c784; font-family: monospace; font-size: 0.85rem; }}
-        .desc {{ color: #888; font-size: 0.8rem; }}
-        .footer {{ color: #555; font-size: 0.8rem; text-align: center; margin-top: 2rem; }}
-        #incident-generator {{ background: #1a1d27; border: 1px solid #2d3148; border-radius: 8px; padding: 1.5rem; margin-bottom: 2rem; }}
-        #incident-result {{ margin-top: 1.5rem; padding: 1rem; background: #0f1117; border-radius: 6px; border-left: 4px solid #ff6b35; }}
-        .badge-mono {{ font-family: monospace; background: #333; padding: 0.1rem 0.4rem; border-radius: 3px; font-size: 0.85rem; }}
-        .difficulty-bar-container {{ height: 8px; background: #333; border-radius: 4px; margin: 10px 0; }}
-        .difficulty-bar {{ height: 100%; border-radius: 4px; transition: width 0.5s ease; }}
-        .tag {{ font-size: 0.75rem; color: #888; background: #222; padding: 0.1rem 0.4rem; border-radius: 10px; margin-right: 5px; }}
+        body {{ font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+               background: var(--bg); color: var(--text); margin: 0; padding: 2rem; line-height: 1.5; }}
+        a {{ color: var(--accent); text-decoration: none; }}
+        a:hover {{ text-decoration: underline; }}
+        
+        /* Layout */
+        .container {{ max-width: 1100px; margin: 0 auto; }}
+        header {{ display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 3rem; border-bottom: 1px solid var(--border); padding-bottom: 1.5rem; }}
+        section {{ margin-bottom: 4rem; }}
+        h1, h2, h3 {{ margin: 0; }}
+        .section-title {{ font-size: 1.4rem; font-weight: 600; color: #fff; margin-bottom: 0.5rem; }}
+        .section-subtitle {{ font-size: 0.95rem; color: var(--grey); margin-bottom: 1.5rem; }}
+        
+        /* Header */
+        .brand h1 {{ font-size: 2.5rem; letter-spacing: -1px; color: #fff; }}
+        .brand h2 {{ font-size: 1.1rem; color: var(--accent); font-weight: 500; margin-top: -5px; }}
+        .brand p {{ font-size: 0.85rem; color: var(--grey); margin-top: 5px; }}
+        .status-pill {{ display: inline-flex; align-items: center; gap: 6px; padding: 4px 12px; border-radius: 20px; font-size: 0.75rem; font-weight: 700; background: #1f242c; border: 1px solid var(--border); }}
+        .status-dot {{ width: 8px; height: 8px; border-radius: 50%; }}
+        .status-live {{ background: var(--green); box-shadow: 0 0 8px var(--green); }}
+        .status-down {{ background: var(--red); box-shadow: 0 0 8px var(--red); }}
+        
+        /* Grid & Cards */
+        .grid {{ display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 1rem; }}
+        .card {{ background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; padding: 1.25rem; }}
+        .badge {{ display: inline-block; padding: 2px 8px; border-radius: 4px; font-size: 0.7rem; font-weight: 700; margin-bottom: 0.75rem; text-transform: uppercase; }}
+        
+        /* Task Badges */
+        .bg-green {{ background: rgba(63, 185, 80, 0.15); color: var(--green); border: 1px solid rgba(63, 185, 80, 0.3); }}
+        .bg-yellow {{ background: rgba(210, 153, 34, 0.15); color: var(--yellow); border: 1px solid rgba(210, 153, 34, 0.3); }}
+        .bg-orange {{ background: rgba(255, 165, 0, 0.15); color: #ffa500; border: 1px solid rgba(255, 165, 0, 0.3); }}
+        .bg-red {{ background: rgba(248, 81, 73, 0.15); color: var(--red); border: 1px solid rgba(248, 81, 73, 0.3); }}
+        .bg-purple {{ background: rgba(188, 140, 255, 0.15); color: var(--purple); border: 1px solid rgba(188, 140, 255, 0.3); }}
+        .bg-blue {{ background: rgba(121, 192, 255, 0.15); color: var(--blue); border: 1px solid rgba(121, 192, 255, 0.3); }}
+        .bg-teal {{ background: rgba(126, 231, 135, 0.15); color: var(--teal); border: 1px solid rgba(126, 231, 135, 0.3); }}
+        .bg-grey {{ background: rgba(139, 148, 158, 0.15); color: var(--grey); border: 1px solid rgba(139, 148, 158, 0.3); }}
+        
+        .task-name {{ font-size: 1rem; font-weight: 600; color: #fff; margin-bottom: 0.4rem; }}
+        .task-desc {{ font-size: 0.85rem; color: var(--grey); line-height: 1.4; }}
+        .task-meta {{ font-size: 0.75rem; color: #58a6ff; font-family: monospace; margin-top: 10px; }}
+        
+        /* Table */
+        .table-container {{ background: var(--card-bg); border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }}
+        table {{ width: 100%; border-collapse: collapse; }}
+        th {{ text-align: left; background: #21262d; padding: 12px 16px; font-size: 0.75rem; text-transform: uppercase; color: var(--grey); border-bottom: 1px solid var(--border); }}
+        td {{ padding: 12px 16px; border-bottom: 1px solid var(--border); font-size: 0.9rem; }}
+        .stars {{ font-size: 1rem; letter-spacing: 2px; }}
+        .star-gold {{ color: #ffd700; }}
+        .star-silver {{ color: #c0c0c0; }}
+        .star-bronze {{ color: #cd7f32; }}
+        .star-empty {{ color: #484f58; }}
+        
+        .progress-wrap {{ display: flex; align-items: center; gap: 10px; width: 120px; }}
+        .progress-bg {{ flex: 1; height: 6px; background: #30363d; border-radius: 3px; overflow: hidden; }}
+        .progress-fill {{ height: 100%; border-radius: 3px; transition: width 0.4s ease; }}
+        .score-val {{ font-family: monospace; font-size: 0.8rem; color: var(--grey); min-width: 35px; }}
+        
+        .pill {{ padding: 2px 8px; border-radius: 10px; font-size: 0.7rem; font-weight: 700; }}
+        .pill-next {{ background: rgba(63, 185, 80, 0.2); color: var(--green); }}
+        .pill-scaffold {{ background: rgba(248, 81, 73, 0.2); color: var(--red); }}
+        
+        /* Generator */
+        .generator-input {{ display: flex; gap: 12px; margin-bottom: 2rem; }}
+        .input-seed {{ background: #0d1117; border: 1px solid var(--border); color: #fff; padding: 8px 16px; border-radius: 6px; width: 120px; font-family: monospace; }}
+        .btn {{ background: #21262d; border: 1px solid var(--border); color: #c9d1d9; padding: 8px 16px; border-radius: 6px; cursor: pointer; font-weight: 600; font-size: 0.9rem; }}
+        .btn:hover {{ background: #30363d; border-color: #8b949e; }}
+        .btn-primary {{ background: var(--accent); color: #fff; border: none; }}
+        .btn-primary:hover {{ background: #79c0ff; }}
+        
+        .result-panel {{ background: #0d1117; border: 1px solid var(--border); border-radius: 8px; padding: 1.5rem; display: none; }}
+        .res-top {{ display: flex; align-items: center; gap: 12px; margin-bottom: 1rem; }}
+        .res-body {{ background: #161b22; border: 1px solid #30363d; padding: 1rem; border-radius: 6px; margin: 1rem 0; color: #c9d1d9; }}
+        .res-tags {{ display: flex; gap: 8px; flex-wrap: wrap; }}
+        .tag-pill {{ background: #21262d; border: 1px solid var(--border); padding: 2px 10px; border-radius: 12px; font-size: 0.75rem; color: #8b949e; }}
+        
+        /* Dual Agent */
+        .diagram-box {{ background: #010409; border: 1px solid var(--border); padding: 1.5rem; border-radius: 8px; font-family: monospace; color: #79c0ff; line-height: 1.2; overflow-x: auto; margin-bottom: 1.5rem; }}
+        
+        /* Quick Start */
+        .code-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 1.5rem; }}
+        .code-box {{ background: #161b22; border: 1px solid var(--border); border-radius: 8px; overflow: hidden; }}
+        .code-header {{ background: #21262d; padding: 8px 16px; font-size: 0.8rem; font-weight: 600; color: var(--grey); border-bottom: 1px solid var(--border); }}
+        pre {{ margin: 0; padding: 1rem; font-size: 0.85rem; color: #d1d5da; overflow-x: auto; }}
+        
+        /* Footer */
+        footer {{ border-top: 1px solid var(--border); padding-top: 2rem; margin-top: 4rem; text-align: center; }}
+        .footer-links {{ display: flex; justify-content: center; gap: 20px; margin-bottom: 1rem; font-size: 0.9rem; }}
+        .footer-text {{ font-size: 0.8rem; color: var(--grey); }}
     </style>
 </head>
 <body>
-    <h1>DevOps Incident Response</h1>
-    <h2>OpenEnv — Meta x PyTorch x Hugging Face Hackathon Submission</h2>
-    
-    <div class="grid">
-        {task_info}
-    </div>
-    
-    <div class="tasks">
-        <div class="task">
-            <span class="badge easy">EASY</span>
-            <h3>Single Service OOM</h3>
-            <p>One service crash-loops from a memory leak. Which service varies by seed. Max 15 steps.</p>
-        </div>
-        <div class="task">
-            <span class="badge medium">MEDIUM</span>
-            <h3>Cascading Failure</h3>
-            <p>Bad deployment cascades through 3 services. One red-herring alert included. Max 20 steps.</p>
-        </div>
-        <div class="task">
-            <span class="badge hard">HARD</span>
-            <h3>Silent Data Corruption</h3>
-            <p>All services green. No error alerts. Requires correlating subtle business metric signals. Max 25 steps.</p>
-        </div>
-        <div class="task">
-            <span class="badge bonus">BONUS</span>
-            <h3>Dual Simultaneous Failure</h3>
-            <p>Two independent failures at once. Both must be fixed for full credit. Max 25 steps.</p>
-        </div>
-        <div class="task">
-            <span class="badge security">SECURITY</span>
-            <h3>Security Incident (DDoS)</h3>
-            <p>Botnet DDoS and credential stuffing attack. Requires traffic blocking and security escalation. Max 20 steps.</p>
-        </div>
-        <div class="task">
-            <span class="badge database">DATABASE</span>
-            <h3>Database Degradation</h3>
-            <p>Missing schema index causing slow queries and full table scans. Fix via index creation or rollback. Max 20 steps.</p>
-        </div>
-        <div class="task">
-            <span class="badge failover">FAILOVER</span>
-            <h3>Multi-Region Failover</h3>
-            <p>Partial region failure. Discriminate between services that support auto-failover and those that require human escalation. Max 25 steps.</p>
-        </div>
-    </div>
-
-    <div id="incident-generator">
-        <h3 style="margin-top:0; color:#ff6b35;">ARIA Incident Generator</h3>
-        <div style="display:flex; gap:10px; align-items:center;">
-            <input type="number" id="seed-input" min="0" max="99999" value="42" 
-                   style="background:#0f1117; color:#fff; border:1px solid #2d3148; padding:8px; border-radius:4px; width:100px;">
-            <button onclick="generateIncident()" 
-                    style="background:#ff6b35; color:#fff; border:none; padding:8px 16px; border-radius:4px; cursor:pointer; font-weight:600;">
-                Generate Incident
-            </button>
-        </div>
-        <div id="incident-result" style="display:none;">
-            <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:10px;">
-                <span id="res-id" class="badge-mono"></span>
-                <div id="res-badges"></div>
+    <div class="container">
+        <header>
+            <div class="brand">
+                <h1>ARIA</h1>
+                <h2>Adaptive Reward & Incident Architecture</h2>
+                <p>DevOps Incident Response · OpenEnv · Meta × PyTorch × HuggingFace Hackathon</p>
             </div>
-            <p id="res-affected" style="margin:5px 0; font-weight:600;"></p>
-            <div class="difficulty-bar-container">
-                <div id="res-diff-bar" class="difficulty-bar"></div>
-            </div>
-            <p id="res-desc" style="margin:10px 0; line-height:1.4; color:#ccc;"></p>
-            <div id="res-noise" style="margin-bottom:15px;"></div>
-            <p style="font-size:0.75rem; color:#555; font-family:monospace; margin:0;">
-                Use with: POST /reset body {{"task_id":"generated","seed":<span id="res-seed-val"></span>}}
-            </p>
-        </div>
-    </div>
-
-    <div class="curriculum-section">
-        <h3>ARIA Curriculum Status</h3>
-        <p>Live mastery tracking across the seven incident types.</p>
-        <div id="curriculum-status">
-            <div class="curriculum-loading">Loading curriculum status...</div>
-        </div>
-    </div>
-    
-    <div class="endpoints">
-        <h3>API Endpoints</h3>
-        <div class="endpoint">
-            <span class="method">GET</span>
-            <span class="path">/health</span>
-            <span class="desc">Health check</span>
-        </div>
-        <div class="endpoint">
-            <span class="method">POST</span>
-            <span class="path">/reset</span>
-            <span class="desc">Start new episode — body: {{"task_id": "easy", "seed": 42}}</span>
-        </div>
-        <div class="endpoint">
-            <span class="method">POST</span>
-            <span class="path">/step</span>
-            <span class="desc">Take one action — body: Action JSON</span>
-        </div>
-        <div class="endpoint">
-            <span class="method">GET</span>
-            <span class="path">/state</span>
-            <span class="desc">Full state with ground truth and analytics</span>
-        </div>
-        <div class="endpoint">
-            <span class="method">GET</span>
-            <span class="path">/validate</span>
-            <span class="desc">Self-validation report for all 7 tasks</span>
-        </div>
-        <div class="endpoint">
-            <span class="method">GET</span>
-            <span class="path">/docs</span>
-            <span class="desc">Interactive API documentation (Swagger UI)</span>
-        </div>
-    </div>
-    
-    <div class="footer">
-        Auto-refreshes every 10 seconds &nbsp;|&nbsp; 
-        <a href="/docs" style="color:#ff6b35;">API Docs</a> &nbsp;|&nbsp;
-        <a href="/validate" style="color:#ff6b35;">Run Validation</a> &nbsp;|&nbsp;
-        <a href="/health" style="color:#ff6b35;">Health Check</a> &nbsp;|&nbsp;
-        <a href="/metrics" style="color:#ff6b35;">Metrics</a> &nbsp;|&nbsp;
-        <a href="/leaderboard" style="color:#ff6b35;">Leaderboard</a>
-    </div>
-    <script>
-        const curriculumContainer = document.getElementById("curriculum-status");
-
-        function masteryStars(level) {{
-            return "★".repeat(level) + "☆".repeat(3 - level);
-        }}
-
-        function avgColor(avg) {{
-            if (avg < 0.3) {{
-                return "#ef5350";
-            }}
-            if (avg < 0.6) {{
-                return "#ffd54f";
-            }}
-            return "#66bb6a";
-        }}
-
-        function renderCurriculumStatus(payload) {{
-            const tasks = payload.tasks || {{}};
-            const recommendedTask = payload.recommended_task;
-            const rows = Object.entries(tasks).map(([taskId, task]) => {{
-                const avg = Number(task.rolling_avg || 0);
-                const width = Math.max(0, Math.min(100, avg * 100));
-                const badges = [];
-                if (task.scaffold_needed) {{
-                    badges.push('<span class="curriculum-pill scaffold-pill">SCAFFOLD</span>');
-                }}
-                if (taskId === recommendedTask) {{
-                    badges.push('<span class="curriculum-pill recommended-pill">RECOMMENDED</span>');
-                }}
-
-                return `
-                    <div class="curriculum-row">
-                        <div class="curriculum-task-name">${{taskId}}</div>
-                        <div class="curriculum-stars" title="${{task.mastery_label}}">${{masteryStars(task.mastery_level)}}</div>
-                        <div class="curriculum-bar-wrap">
-                            <div class="curriculum-bar">
-                                <div class="curriculum-fill" style="width:${{width}}%; background:${{avgColor(avg)}};"></div>
-                            </div>
-                            <div class="curriculum-score">${{avg.toFixed(2)}}</div>
-                        </div>
-                        <div class="curriculum-badges">${{badges.join("")}}</div>
-                    </div>
-                `;
-            }}).join("");
-
-            curriculumContainer.innerHTML = `
-                <div class="curriculum-meta">Total episodes recorded: ${{payload.total_episodes_recorded}}</div>
-                <div class="curriculum-table">
-                    <div class="curriculum-header">
-                        <div>Task</div>
-                        <div>Mastery</div>
-                        <div>Rolling Avg</div>
-                        <div>Status</div>
-                    </div>
-                    ${{rows}}
+            <div style="text-align: right;">
+                <div class="status-pill">
+                    <div id="health-dot" class="status-dot"></div>
+                    <span id="health-text">LOADING...</span>
                 </div>
-            `;
-        }}
+                <div class="mt-2" style="font-size: 0.9rem;">
+                    <a href="/docs">Docs</a> &nbsp;|&nbsp; <a href="/validate">Validate</a>
+                </div>
+            </div>
+        </header>
 
-        async function refreshCurriculumStatus() {{
+        <section id="environment">
+            <h3 class="section-title">Environment — 7 Tasks</h3>
+            <div class="grid">
+                <div class="card">
+                    <span class="badge bg-green">EASY</span>
+                    <div class="task-name">Single Service OOM</div>
+                    <div class="task-desc">One service crash-loops from a memory leak. Varies by seed.</div>
+                    <div class="task-meta">max_steps: 15</div>
+                </div>
+                <div class="card">
+                    <span class="badge bg-yellow">MEDIUM</span>
+                    <div class="task-name">Cascading Failure</div>
+                    <div class="task-desc">Bad deployment cascades through 3 services + red-herring.</div>
+                    <div class="task-meta">max_steps: 20</div>
+                </div>
+                <div class="card">
+                    <span class="badge bg-orange">HARD</span>
+                    <div class="task-name">Silent Data Corruption</div>
+                    <div class="task-desc">No alerts. Signal in WARN logs and business metric slippage.</div>
+                    <div class="task-meta">max_steps: 25</div>
+                </div>
+                <div class="card">
+                    <span class="badge bg-red">BONUS</span>
+                    <div class="task-name">Dual Simultaneous Failure</div>
+                    <div class="task-desc">Two independent failures at once. Both must be fixed.</div>
+                    <div class="task-meta">max_steps: 25</div>
+                </div>
+                <div class="card">
+                    <span class="badge bg-purple">SECURITY</span>
+                    <div class="task-name">Security Incident (DDoS)</div>
+                    <div class="task-desc">Botnet DDoS + credential stuffing. CIDR block required.</div>
+                    <div class="task-meta">max_steps: 20</div>
+                </div>
+                <div class="card">
+                    <span class="badge bg-blue">DATABASE</span>
+                    <div class="task-name">Database Degradation</div>
+                    <div class="task-desc">Missing schema index causing DB CPU spike and slow queries.</div>
+                    <div class="task-meta">max_steps: 20</div>
+                </div>
+                <div class="card">
+                    <span class="badge bg-teal">FAILOVER</span>
+                    <div class="task-name">Multi-Region Failover</div>
+                    <div class="task-desc">Region failure. Escalate or failover selective services.</div>
+                    <div class="task-meta">max_steps: 25</div>
+                </div>
+                <div class="card" style="border-style: dashed;">
+                    <span class="badge bg-grey">GENERATED</span>
+                    <div class="task-name">Procedural Incident</div>
+                    <div class="task-desc">Seed-based procedural incidents. Infinite unique scenarios.</div>
+                    <div class="task-meta">max_steps: 20</div>
+                </div>
+            </div>
+        </section>
+
+        <section id="curriculum">
+            <h3 class="section-title">Curriculum Engine</h3>
+            <p class="section-subtitle">Adapts training difficulty to agent performance</p>
+            <div id="curriculum-container">
+                <div class="text-grey" style="padding: 2rem; text-align: center;">Loading curriculum data...</div>
+            </div>
+            <p class="text-grey" style="font-size: 0.8rem; margin-top: 15px;">
+                Feed your training loop: <span class="font-mono">POST /curriculum/record</span> with <span class="font-mono">{{"task_id", "score"}}</span>
+            </p>
+        </section>
+
+        <section id="generator">
+            <h3 class="section-title">Incident Generator</h3>
+            <p class="section-subtitle">Procedural incidents — infinite unique scenarios from seeds</p>
+            <div class="generator-input">
+                <input type="number" id="seed-input" class="input-seed" value="42">
+                <button onclick="generate()" class="btn btn-primary">Generate Incident ▶</button>
+            </div>
+            <div id="gen-result" class="result-panel">
+                <div class="res-top">
+                    <span id="res-id" class="badge bg-grey font-mono" style="padding: 4px 10px; font-size: 0.85rem;"></span>
+                    <span id="res-mode" class="badge"></span>
+                    <span id="res-sev" class="badge"></span>
+                    <div class="progress-wrap" style="width: 150px;">
+                        <div class="progress-bg"><div id="res-diff-bar" class="progress-fill"></div></div>
+                    </div>
+                </div>
+                <div id="res-affected" style="font-weight: 600; font-size: 1rem; color: #fff;"></div>
+                <div id="res-desc" class="res-body"></div>
+                <div id="res-noise-label" style="font-size: 0.8rem; color: var(--grey); margin-bottom: 8px;">Noise alerts:</div>
+                <div id="res-noise" class="res-tags"></div>
+                <div class="mt-2" style="font-size: 0.8rem; color: var(--grey); font-family: monospace; border-top: 1px solid var(--border); padding-top: 1rem;">
+                    POST /reset {{"task_id":"generated","seed":<span id="res-seed-confirm"></span>}}
+                </div>
+            </div>
+        </section>
+
+        <section id="multi-agent">
+            <h3 class="section-title">Dual-Agent Mode</h3>
+            <p class="section-subtitle">Split observability — Observer sees logs, Responder sees metrics</p>
+            <div class="diagram-box">
+┌──────────────────┐   share_finding   ┌──────────────────┐
+│  AGENT A         │ ────────────────▶ │  AGENT B         │
+│  Observer        │                   │  Responder       │
+│                  │                   │                  │
+│  Sees:           │                   │  Sees:           │
+│  · alerts        │                   │  · cpu/memory    │
+│  · logs          │                   │  · error_rate    │
+│  · evidence      │                   │  · dependencies  │
+└──────────────────┘                   └──────────────────┘
+         │                                      ▲
+         └──────── Shared Findings Log ─────────┘
+            </div>
+            <button onclick="startMultiAgent()" class="btn btn-primary">Start Dual-Agent Session (easy task)</button>
+            <div id="multi-agent-result" class="result-panel mt-2">
+                <div id="ma-session" class="font-mono" style="color: var(--teal); margin-bottom: 10px;"></div>
+                <div class="code-box">
+                    <pre id="ma-hint" style="font-size: 0.8rem; color: #8b949e;"></pre>
+                </div>
+            </div>
+        </section>
+
+        <section id="quick-start">
+            <h3 class="section-title">Quick Start</h3>
+            <div class="code-grid">
+                <div class="code-box">
+                    <div class="code-header">Single Agent</div>
+                    <pre># Install
+pip install openenv
+
+# Reset environment  
+curl -X POST .../reset \\
+  -H "Content-Type: application/json" \\
+  -d '{{"task_id":"easy","seed":42}}'
+
+# Take an action
+curl -X POST .../step \\
+  -d '{{"action_type":"read_logs",
+       "service":"payment-service"}}'
+
+# Check curriculum
+curl .../curriculum/next</pre>
+                </div>
+                <div class="code-box">
+                    <div class="code-header">Dual Agent</div>
+                    <pre># Start session
+curl -X POST .../multi-agent/reset \\
+  -d '{{"task_id":"easy","seed":42}}'
+
+# Agent A shares finding
+curl -X POST .../multi-agent/step/a/{{id}} \\
+  -d '{{"finding":"payment-service OOM"}}'
+
+# Agent B responds
+curl -X POST .../multi-agent/step/b/{{id}} \\
+  -d '{{"action_type":"restart_service",
+       "service":"payment-service"}}'</pre>
+                </div>
+            </div>
+        </section>
+
+        <footer>
+            <div class="footer-links">
+                <a href="/docs">Docs</a>
+                <a href="/validate">Validate</a>
+                <a href="/metrics">Metrics</a>
+                <a href="/leaderboard">Leaderboard</a>
+                <a href="https://github.com/Twilight-13/devops-incident-response">GitHub</a>
+                <a href="https://huggingface.co/spaces/Arijit-07/devops-incident-response">HuggingFace Space</a>
+            </div>
+            <div class="footer-text">
+                Built solo for Meta × PyTorch × HuggingFace OpenEnv Hackathon · Bangalore April 25–26
+            </div>
+        </footer>
+    </div>
+
+    <script>
+        // Health Check
+        async function checkHealth() {{
+            const dot = document.getElementById('health-dot');
+            const txt = document.getElementById('health-text');
             try {{
-                const response = await fetch("/curriculum/status");
-                if (!response.ok) {{
-                    throw new Error("Failed to load curriculum status");
-                }}
-                const payload = await response.json();
-                renderCurriculumStatus(payload);
-            }} catch (error) {{
-                curriculumContainer.innerHTML = '<div class="curriculum-error">Curriculum status unavailable.</div>';
+                const r = await fetch('/health');
+                if (r.ok) {{
+                    dot.className = 'status-dot status-live';
+                    txt.innerText = '● LIVE';
+                    txt.style.color = 'var(--green)';
+                }} else {{ throw new Error(); }}
+            }} catch(e) {{
+                dot.className = 'status-dot status-down';
+                txt.innerText = '● DOWN';
+                txt.style.color = 'var(--red)';
             }}
         }}
 
-        refreshCurriculumStatus();
-        setInterval(refreshCurriculumStatus, 15000);
+        // Curriculum
+        async function loadCurriculum() {{
+            const container = document.getElementById('curriculum-container');
+            try {{
+                const r = await fetch('/curriculum/status');
+                const data = await r.json();
+                
+                if (Object.keys(data.tasks).length === 0) {{
+                    container.innerHTML = '<div class="card" style="text-align:center; color:var(--grey);">No episodes recorded yet. Run episodes to see curriculum data.</div>';
+                    return;
+                }}
 
-        function generateIncident() {{
-            const seed = document.getElementById('seed-input').value;
-            fetch(`/generate/preview?seed=${{seed}}`)
-                .then(r => r.json())
-                .then(data => {{
-                    document.getElementById('res-id').innerText = data.incident_id;
-                    document.getElementById('res-seed-val').innerText = seed;
-                    document.getElementById('res-affected').innerText = "Affected: " + data.affected_service;
-                    document.getElementById('res-desc').innerText = data.description;
+                let html = '<div class="table-container"><table><thead><tr><th>Task</th><th>Mastery</th><th>Avg Score</th><th>Status</th></tr></thead><tbody>';
+                
+                for (const [id, task] of Object.entries(data.tasks)) {{
+                    const score = task.rolling_avg || 0;
+                    const color = score < 0.3 ? 'var(--red)' : (score < 0.6 ? 'var(--yellow)' : 'var(--green)');
+                    const mastery = task.mastery_level || 0;
                     
-                    const modeColors = {{
-                        oom: "#f44336", cascade: "#ff9800", corruption: "#9c27b0", 
-                        security: "#ffeb3b", database: "#4fc3f7", network_partition: "#009688"
-                    }};
-                    const sevColors = {{ sev1: "#f44336", sev2: "#ff9800", sev3: "#ffeb3b" }};
-                    
-                    document.getElementById('res-badges').innerHTML = `
-                        <span class="badge" style="background:${{modeColors[data.failure_mode]}}; color:#000; margin-right:5px;">${{data.failure_mode.toUpperCase()}}</span>
-                        <span class="badge" style="background:${{sevColors[data.severity]}}; color:#000;">${{data.severity.toUpperCase()}}</span>
-                    `;
-                    
-                    const diffBar = document.getElementById('res-diff-bar');
-                    diffBar.style.width = (data.difficulty_score * 100) + "%";
-                    diffBar.style.background = avgColor(data.difficulty_score);
-                    
-                    const noiseDiv = document.getElementById('res-noise');
-                    if (data.noise_alerts.length === 0) {{
-                        noiseDiv.innerHTML = '<span style="font-size:0.8rem; color:#555;">No noise alerts</span>';
-                    }} else {{
-                        noiseDiv.innerHTML = data.noise_alerts.map(n => `<span class="tag">${{n}}</span>`).join("");
-                    }}
-                    
-                    document.getElementById('incident-result').style.display = 'block';
-                }});
+                    let stars = '';
+                    if (mastery === 0) stars = '<span class="star-empty">☆☆☆</span>';
+                    else if (mastery === 1) stars = '<span class="star-bronze">★</span><span class="star-empty">☆☆</span>';
+                    else if (mastery === 2) stars = '<span class="star-silver">★★</span><span class="star-empty">☆</span>';
+                    else stars = '<span class="star-gold">★★★</span>';
+
+                    let status = '';
+                    if (id === data.recommended_task) status += '<span class="pill pill-next">NEXT</span> ';
+                    if (task.scaffold_needed) status += '<span class="pill pill-scaffold">SCAFFOLD</span>';
+
+                    html += `<tr>
+                        <td class="font-mono" style="color:#fff; text-transform:capitalize;">${{id}}</td>
+                        <td class="stars">${{stars}}</td>
+                        <td>
+                            <div class="progress-wrap">
+                                <div class="progress-bg"><div class="progress-fill" style="width:${{score * 100}}%; background:${{color}};"></div></div>
+                                <span class="score-val">${{score.toFixed(2)}}</span>
+                            </div>
+                        </td>
+                        <td>${{status}}</td>
+                    </tr>`;
+                }}
+                html += '</tbody></table></div>';
+                container.innerHTML = html;
+            }} catch(e) {{
+                container.innerHTML = '<div class="card" style="text-align:center; color:var(--red);">Failed to fetch curriculum status.</div>';
+            }}
         }}
+
+        // Incident Generator
+        async function generate() {{
+            const seed = document.getElementById('seed-input').value;
+            const res = await fetch(`/generate/preview?seed=${{seed}}`);
+            const data = await res.json();
+            
+            document.getElementById('gen-result').style.display = 'block';
+            document.getElementById('res-id').innerText = `INC-${{seed.toString().padStart(5, '0')}}`;
+            document.getElementById('res-seed-confirm').innerText = seed;
+            document.getElementById('res-affected').innerText = `Affected service: ${{data.affected_service}}`;
+            document.getElementById('res-desc').innerText = data.description;
+            
+            const modeBadge = document.getElementById('res-mode');
+            const modeColors = {{ oom: 'bg-red', cascade: 'bg-yellow', corruption: 'bg-orange', security: 'bg-purple', database: 'bg-blue', network_partition: 'bg-teal' }};
+            modeBadge.innerText = data.failure_mode;
+            modeBadge.className = 'badge ' + (modeColors[data.failure_mode] || 'bg-grey');
+            
+            const sevBadge = document.getElementById('res-sev');
+            const sevColors = {{ sev1: 'bg-red', sev2: 'bg-yellow', sev3: 'bg-green' }};
+            sevBadge.innerText = data.severity;
+            sevBadge.className = 'badge ' + (sevColors[data.severity] || 'bg-grey');
+            
+            const diffBar = document.getElementById('res-diff-bar');
+            diffBar.style.width = (data.difficulty_score * 100) + '%';
+            diffBar.style.background = data.difficulty_score < 0.3 ? 'var(--green)' : (data.difficulty_score < 0.6 ? 'var(--yellow)' : 'var(--red)');
+            
+            const noise = document.getElementById('res-noise');
+            if (data.noise_alerts.length === 0) {{
+                noise.innerHTML = '<span class="text-grey" style="font-size:0.8rem;">None</span>';
+            }} else {{
+                noise.innerHTML = data.noise_alerts.map(n => `<span class="tag-pill">${{n}}</span>`).join("");
+            }}
+            
+            document.getElementById('gen-result').scrollIntoView({{ behavior: 'smooth', block: 'nearest' }});
+        }}
+
+        // Multi Agent
+        async function startMultiAgent() {{
+            try {{
+                const r = await fetch('/multi-agent/reset', {{ 
+                    method: 'POST', 
+                    headers: {{ 'Content-Type': 'application/json' }},
+                    body: JSON.stringify({{ task_id: 'easy', seed: 42 }})
+                }});
+                const data = await r.json();
+                
+                const panel = document.getElementById('multi-agent-result');
+                panel.style.display = 'block';
+                document.getElementById('ma-session').innerText = `Session ID: ${{data.session_id}}`;
+                document.getElementById('ma-hint').innerText = 
+                    `Agent A: POST /multi-agent/step/a/${{data.session_id}}\\n` +
+                    `         body: {{"finding": "your observation here"}}\\n\\n` +
+                    `Agent B: POST /multi-agent/step/b/${{data.session_id}}\\n` +
+                    `         body: {{"action_type": "...", ...}}\\n\\n` +
+                    `Status:  GET  /multi-agent/state/${{data.session_id}}`;
+            }} catch(e) {{
+                alert('Dual-Agent session initiation failed. Verify /multi-agent endpoints.');
+            }}
+        }}
+
+        // Init
+        checkHealth();
+        loadCurriculum();
+        setInterval(loadCurriculum, 15000);
     </script>
 </body>
 </html>"""
     return html
+
 
 
 @app.get("/health")

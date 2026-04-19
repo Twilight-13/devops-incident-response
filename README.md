@@ -11,7 +11,12 @@ pipeline_tag: reinforcement-learning
 sdk: docker
 ---
 
-# DevOps Incident Response — OpenEnv
+# ARIA — DevOps Incident Response
+**ARIA — DevOps Incident Response gym with Adaptive Reward & Incident Architecture (Meta x PyTorch x Hugging Face Hackathon)**
+
+ARIA (Adaptive Reward & Incident Architecture) is a production-grade DevOps incident response environment built to bridge the gap between LLM reasoning and operational intelligence. Unlike static benchmarks, ARIA utilizes a dynamic **Curriculum Engine** that tracks agent mastery across 7 diverse domains—from cascading outages to silent data corruption—automatically adjusting task difficulty and providing intelligent diagnostic scaffolding for struggling agents.
+
+The platform introduces two major technical innovations for advanced agent training: a seed-based **Procedural Incident Generator** capable of creating infinite, deterministic scenarios that prevent overfitting, and a **Dual-Agent Mode**. This mode enforces a "Split Observability" constraint where an Observer agent and a Responder agent must collaborate across partitioned views (logs vs metrics), mirroring high-stakes SRE collaboration and forcing higher-order communication and causality reasoning.
 
 [![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Twilight-13/devops-incident-response/blob/main/train_grpo.ipynb)
 [![HF Space](https://img.shields.io/badge/HuggingFace-Space-orange)](https://huggingface.co/spaces/Arijit-07/devops-incident-response)
