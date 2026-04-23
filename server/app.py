@@ -11,8 +11,12 @@ from datetime import datetime
 import uuid
 import statistics
 from generator.incident_factory import IncidentFactory
+from curriculum import CurriculumEngine
+from multi_agent import DualAgentSession
 
 _factory = IncidentFactory()
+curriculum_engine = CurriculumEngine()
+multi_agent_sessions: dict = {}
 
 episode_history = deque(maxlen=1000)
 
@@ -64,7 +68,7 @@ try:
 except ImportError:
     HAS_WEB_INTERFACE = False
 
-VALID_TASKS = ("easy", "medium", "hard", "bonus", "security", "database", "failover", "generated")
+VALID_TASKS = ("easy", "medium", "hard", "bonus", "security", "database", "failover")
 _env = DevOpsEnvironment()
 app = FastAPI(
     title="DevOps Incident Response — OpenEnv",
@@ -83,6 +87,20 @@ app.add_middleware(
 class ResetRequest(BaseModel):
     task_id: str = "easy"
     seed: Optional[int] = None
+
+
+class CurriculumRecordRequest(BaseModel):
+    task_id: str
+    score: float
+
+
+class MultiAgentResetRequest(BaseModel):
+    task_id: str
+    seed: int = 42
+
+
+class AgentAStepRequest(BaseModel):
+    finding: str
 
 
 @app.get("/", response_class=HTMLResponse)
@@ -124,7 +142,7 @@ def dashboard():
     html = f"""<!DOCTYPE html>
 <html>
 <head>
-    <title>DevOps Incident Response — OpenEnv</title>
+    <title>ARIA — DevOps Incident Response | OpenEnv</title>
     <meta charset="utf-8">
     <meta http-equiv="refresh" content="10">
     <style>
@@ -656,3 +674,101 @@ async def websocket_endpoint(websocket: WebSocket):
             pass
         await websocket.close()
 
+
+# ─── Multi-Agent Routes ────────────────────────────────────────────────────────
+
+@app.post("/multi-agent/reset")
+def multi_agent_reset(body: MultiAgentResetRequest):
+    session = DualAgentSession(task_id=body.task_id, seed=body.seed)
+    multi_agent_sessions[session.session_id] = session
+    return {
+        "session_id": session.session_id,
+        "task_id": body.task_id,
+        "seed": body.seed,
+        "agent_a_role": "observer — sees logs and alerts only",
+        "agent_b_role": "responder — sees metrics and dependencies only",
+        "instructions": {
+            "agent_a": "POST /multi-agent/step/a/{session_id} body: {\"finding\": \"your observation\"}",
+            "agent_b": "POST /multi-agent/step/b/{session_id} body: Action JSON (same schema as POST /step)",
+        },
+        "observation_a": session.get_observation_a(),
+        "observation_b": session.get_observation_b(),
+    }
+
+
+@app.post("/multi-agent/step/a/{session_id}")
+def multi_agent_step_a(session_id: str, body: AgentAStepRequest):
+    session = multi_agent_sessions.get(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return session.step_a(body.finding)
+
+
+@app.post("/multi-agent/step/b/{session_id}")
+def multi_agent_step_b(session_id: str, body: Action):
+    session = multi_agent_sessions.get(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return session.step_b(body)
+
+
+@app.get("/multi-agent/state/{session_id}")
+def multi_agent_state(session_id: str):
+    session = multi_agent_sessions.get(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return session.get_state()
+
+
+@app.get("/multi-agent/sessions")
+def list_multi_agent_sessions():
+    return [
+        {
+            "session_id": s.session_id,
+            "task_id": s.task_id,
+            "step": s.step_count,
+            "done": s.done,
+            "findings_count": len(s.findings_log),
+        }
+        for s in multi_agent_sessions.values()
+    ]
+
+
+# ─── Curriculum Routes ─────────────────────────────────────────────────────────
+
+@app.get("/curriculum/status")
+def get_curriculum_status():
+    return curriculum_engine.get_status()
+
+
+@app.get("/curriculum/next")
+def get_next_curriculum_task():
+    return {
+        "recommended_task": curriculum_engine.get_next_curriculum_task(),
+        "reasoning": "Lowest rolling average among non-mastered tasks.",
+    }
+
+
+@app.post("/curriculum/record")
+def record_curriculum_episode(req: CurriculumRecordRequest):
+    try:
+        curriculum_engine.record_episode(req.task_id, req.score)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
+    return {
+        "recorded": True,
+        "new_status": curriculum_engine.get_status()["tasks"][req.task_id],
+    }
+
+
+@app.get("/curriculum/hint/{task_id}")
+def get_curriculum_hint(task_id: str):
+    try:
+        return {
+            "task_id": task_id,
+            "hint": curriculum_engine.get_hint(task_id),
+            "scaffold_needed": curriculum_engine.should_scaffold(task_id),
+            "mastery_level": curriculum_engine.get_mastery(task_id),
+        }
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc))
