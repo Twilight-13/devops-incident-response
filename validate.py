@@ -98,7 +98,7 @@ def main():
         return True
 
     check("reset() returns valid Observation for easy task", check_reset_easy)
-    check("reset() works for all 4 tasks", check_reset_all_tasks)
+    check("reset() works for all 7 tasks", check_reset_all_tasks)
     check("Same seed always produces same episode", check_reset_reproducible)
     check("Different seeds produce different scenarios", check_seed_variety)
 

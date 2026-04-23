@@ -7,6 +7,7 @@ from typing import Optional
 from curriculum import CurriculumEngine
 from env import DevOpsIncidentEnv
 from models import Action, ActionType, Observation, StepResult, State
+from multi_agent import DualAgentSession
 from collections import deque
 from datetime import datetime
 import uuid
@@ -78,6 +79,7 @@ app.add_middleware(
 
 VALID_TASKS = ("easy", "medium", "hard", "bonus", "security", "database", "failover")
 _env: Optional[DevOpsIncidentEnv] = None
+multi_agent_sessions: dict[str, DualAgentSession] = {}
 
 
 class ResetRequest(BaseModel):
@@ -90,12 +92,21 @@ class CurriculumRecordRequest(BaseModel):
     score: float
 
 
+class MultiAgentResetRequest(BaseModel):
+    task_id: str
+    seed: int = 42
+
+
+class AgentAStepRequest(BaseModel):
+    finding: str
+
+
 @app.get("/", response_class=HTMLResponse)
 def dashboard():
     html = f"""<!DOCTYPE html>
 <html>
 <head>
-    <title>ARIA — DevOps Incident Response</title>
+    <title>ARIA — DevOps Incident Response | OpenEnv</title>
     <meta charset="utf-8">
     <style>
         :root {{
@@ -597,6 +608,69 @@ def state():
     if _env is None:
         raise HTTPException(status_code=400, detail="Call /reset before /state")
     return _env.state()
+
+
+@app.post("/multi-agent/reset")
+def multi_agent_reset(body: MultiAgentResetRequest):
+    session = DualAgentSession(task_id=body.task_id, seed=body.seed)
+    multi_agent_sessions[session.session_id] = session
+    return {
+        "session_id": session.session_id,
+        "task_id": body.task_id,
+        "seed": body.seed,
+        "agent_a_role": "observer — sees logs and alerts only",
+        "agent_b_role": "responder — sees metrics and dependencies only",
+        "instructions": {
+            "agent_a": (
+                "POST /multi-agent/step/a/{session_id} "
+                "body: {\"finding\": \"your observation\"}"
+            ),
+            "agent_b": (
+                "POST /multi-agent/step/b/{session_id} "
+                "body: Action JSON (same schema as POST /step)"
+            ),
+        },
+        "observation_a": session.get_observation_a(),
+        "observation_b": session.get_observation_b(),
+    }
+
+
+@app.post("/multi-agent/step/a/{session_id}")
+def multi_agent_step_a(session_id: str, body: AgentAStepRequest):
+    session = multi_agent_sessions.get(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return session.step_a(body.finding)
+
+
+@app.post("/multi-agent/step/b/{session_id}")
+def multi_agent_step_b(session_id: str, body: Action):
+    session = multi_agent_sessions.get(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return session.step_b(body)
+
+
+@app.get("/multi-agent/state/{session_id}")
+def multi_agent_state(session_id: str):
+    session = multi_agent_sessions.get(session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return session.get_state()
+
+
+@app.get("/multi-agent/sessions")
+def list_multi_agent_sessions():
+    return [
+        {
+            "session_id": session.session_id,
+            "task_id": session.task_id,
+            "step": session.step_count,
+            "done": session.done,
+            "findings_count": len(session.findings_log),
+        }
+        for session in multi_agent_sessions.values()
+    ]
 
 
 @app.get("/tasks")
