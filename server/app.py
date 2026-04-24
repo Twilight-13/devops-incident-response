@@ -543,16 +543,110 @@ curl -X POST .../multi-agent/step/b/{{id}} \\
 
 @app.get("/health")
 def health():
-    return {"status": "ok", "env": "devops-incident-response", "version": "1.0.0"}
+    """
+    Health check endpoint.
+
+    Returns a simple status object confirming the server is running.
+
+    Returns:
+        {"status": "ok", "env": "devops-incident-response", "version": "2.0.0"}
+    """
+    return {"status": "ok", "env": "devops-incident-response", "version": "2.0.0"}
+
+
+@app.get("/about")
+def about():
+    """
+    Full environment metadata for LLM judges and researchers.
+
+    Returns a comprehensive description of the ARIA environment including
+    task count, action types, feature flags, training metadata, reward
+    design philosophy, and links to the live space, trained model, and docs.
+
+    Returns:
+        JSON object with name, version, description, themes, task/action counts,
+        feature descriptions, training info, reward design, and links.
+    """
+    return {
+        "name": "ARIA — DevOps Incident Response",
+        "version": "2.0.0",
+        "description": (
+            "OpenEnv-compliant RL environment for production incident response. "
+            "AI agents diagnose and remediate software incidents across 7 task types "
+            "using 14 actions with dense reward shaping."
+        ),
+        "themes": [
+            "World Modeling: Professional Tasks",
+            "Self-Improvement",
+            "Multi-Agent Interactions",
+        ],
+        "tasks": 8,
+        "action_types": 14,
+        "features": {
+            "curriculum_engine": "Adaptive difficulty based on agent performance",
+            "incident_generator": "Procedural incidents from seeds (0-99999)",
+            "dual_agent_mode": "Split observability — Observer + Responder",
+        },
+        "training": {
+            "model": "Llama-3.2-3B-Instruct",
+            "algorithm": "GRPO",
+            "framework": "HuggingFace TRL + Unsloth",
+            "episodes": 140,
+            "adapter_url": "https://huggingface.co/Arijit-07/aria-devops-llama3b",
+        },
+        "reward_design": {
+            "type": "dense",
+            "range": [0.001, 0.999],
+            "anti_gaming": [
+                "collateral_damage_penalty",
+                "blind_remediation_penalty",
+                "semantic_diagnosis_matching",
+            ],
+            "efficiency_bonus": True,
+        },
+        "links": {
+            "space": "https://arijit-07-devops-incident-response.hf.space",
+            "model": "https://huggingface.co/Arijit-07/aria-devops-llama3b",
+            "github": "https://github.com/Twilight-13/devops-incident-response",
+            "docs": "https://arijit-07-devops-incident-response.hf.space/docs",
+        },
+    }
 
 
 @app.get("/generate/preview")
 def preview_incident(seed: int = 42):
+    """
+    Preview a procedurally generated incident without starting an episode.
+
+    Uses ARIA's IncidentFactory to generate a deterministic incident description
+    from the given integer seed. Same seed always produces the same incident.
+
+    Args:
+        seed: Integer seed in range 0–99999 (default: 42)
+
+    Returns:
+        Incident object with: failure_mode, severity, affected_service,
+        description, noise_alerts, difficulty_score
+    """
     return _factory.generate(seed)
 
 
 @app.post("/reset", response_model=Observation)
 async def reset(req: Optional[ResetRequest] = None):
+    """
+    Start a new episode.
+
+    Initializes the environment for the specified task and seed.
+    Same seed always produces the same episode (deterministic).
+
+    Args:
+        task_id: One of easy/medium/hard/bonus/security/database/failover/generated
+        seed: Integer seed for reproducibility (optional, random if not provided)
+
+    Returns:
+        Observation with: services, active_alerts, recent_logs,
+        service_dependencies, evidence_log, sla_status, available_runbooks
+    """
     if req is None:
         req = ResetRequest()
     if req.task_id not in VALID_TASKS and req.task_id != "generated":
@@ -565,6 +659,34 @@ async def reset(req: Optional[ResetRequest] = None):
 
 @app.post("/step", response_model=StepResult)
 async def step(action: Action):
+    """
+    Take one action in the current episode.
+
+    Must call /reset first. Accepts any of the 14 action types with their
+    corresponding parameters. Returns the new observation, reward signal,
+    and done flag.
+
+    Args:
+        action_type: One of diagnose/read_logs/read_metrics/read_runbook/
+                     search_logs/restart_service/rollback/scale_up/
+                     alert_oncall/acknowledge/noop/block_ip_range/
+                     create_index/failover
+        service: Target service name (required for most actions)
+        root_cause: Diagnosis string (required for diagnose action)
+        runbook: Runbook filename (required for read_runbook)
+        version: Target version (required for rollback)
+        reason: Reason string (required for alert_oncall)
+        ip_range: CIDR range (required for block_ip_range)
+        table: Table name (required for create_index)
+        column: Column name (required for create_index)
+        target_region: Target region (required for failover)
+
+    Returns:
+        StepResult with: observation (new state), reward (float), done (bool), info (dict)
+
+    Side effects:
+        On done=True, records the episode in the leaderboard and metrics history.
+    """
     if _env._logic is None:
         raise HTTPException(status_code=400, detail="Call /reset before /step")
     res = await _env.step(action)
@@ -575,6 +697,18 @@ async def step(action: Action):
 
 @app.get("/state", response_model=State)
 def state():
+    """
+    Return the full current environment state including ground truth.
+
+    Unlike /step which returns partial observations, /state reveals the
+    ground truth root cause, fix, and full action history. Useful for
+    evaluation and debugging.
+
+    Returns:
+        State with: all Observation fields plus ground_truth_root_cause,
+        ground_truth_fix, incident_resolved, total_reward, action_history,
+        episode_id, task_id, step count
+    """
     if _env._logic is None:
         raise HTTPException(status_code=400, detail="Call /reset before /state")
     return _env.state
@@ -582,6 +716,15 @@ def state():
 
 @app.get("/tasks")
 def list_tasks():
+    """
+    List all 8 tasks with metadata.
+
+    Returns all available task IDs with their name, difficulty, max_steps,
+    and description. Use the task_id values in POST /reset to start an episode.
+
+    Returns:
+        {"tasks": [...]} — list of 8 task objects (7 curated + 1 procedural)
+    """
     return {
         "tasks": [
             {
@@ -665,15 +808,41 @@ def list_tasks():
 
 @app.get("/validate")
 def validate():
+    """
+    Self-validation endpoint — runs all 7 curated tasks and returns per-task scores.
+
+    Instantiates each task environment with seed=42 and runs a random agent
+    for up to 30 steps. Verifies that: the environment runs without errors,
+    scores stay within [0.0, 1.0], and grading completes successfully.
+
+    This endpoint is safe to call at any time — it does not affect the current
+    episode state (the active _env._logic is restored after validation).
+
+    Returns:
+        {
+          "validation": "passed" | "failed",
+          "summary": "X/Y tasks passed validation",
+          "total_tasks": N,
+          "passed": N,
+          "tasks": [
+            {
+              "task_id": "easy",
+              "score": 0.12,
+              "in_range": true,
+              "resolved": false,
+              "steps": 15,
+              "status": "ok"
+            }, ...
+          ]
+        }
+    """
     import random
     from graders.grader import grade_episode
     results = []
-    # Temporarily save existing _logic
     old_logic = _env._logic
     for task_id in VALID_TASKS:
         try:
             import asyncio
-            # Wait! Since we are in a sync endpoint, validating by instantiating the logic directly
             from env import DevOpsIncidentEnv as LogicClass
             env_logic = LogicClass(task_id=task_id, seed=42)
             env_logic.reset()
@@ -692,7 +861,7 @@ def validate():
             )
             results.append({
                 "task_id": task_id,
-                "score": score,
+                "score": round(float(score), 4),
                 "in_range": 0.0 <= score <= 1.0,
                 "resolved": s.incident_resolved,
                 "steps": steps,
@@ -702,12 +871,38 @@ def validate():
             results.append({"task_id": task_id, "status": "error", "error": str(e)})
 
     _env._logic = old_logic
-    all_ok = all(r.get("status") == "ok" and r.get("in_range") for r in results)
-    return {"validation": "passed" if all_ok else "failed", "tasks": results}
+    passed_count = sum(1 for r in results if r.get("status") == "ok" and r.get("in_range"))
+    total_count = len(results)
+    all_ok = passed_count == total_count
+    return {
+        "validation": "passed" if all_ok else "failed",
+        "summary": f"{passed_count}/{total_count} tasks passed validation",
+        "total_tasks": total_count,
+        "passed": passed_count,
+        "tasks": results,
+    }
 
 
 @app.get("/metrics")
 def get_metrics():
+    """
+    Aggregate episode statistics across all completed episodes.
+
+    Statistics are computed in-memory and reset when the server restarts.
+
+    Returns:
+        {
+          "total_episodes": N,
+          "overall_avg_score": 0.XX,
+          "by_task": {
+            "easy": {"count", "avg_score", "max_score", "min_score",
+                     "resolution_rate", "avg_steps_to_diagnosis",
+                     "avg_info_gathering_ratio"},
+            ...
+          },
+          "last_updated": "ISO timestamp"
+        }
+    """
     total_episodes = len(episode_history)
     by_task = {}
     total_score = 0.0
@@ -756,6 +951,12 @@ def get_metrics():
 
 @app.get("/leaderboard")
 def get_leaderboard():
+    """
+    Top-10 episodes ranked by score (ties broken by fewer steps).
+
+    Returns:
+        {"leaderboard": [{"rank", "task_id", "score", "steps", "timestamp"}, ...]}
+    """
     sorted_eps = sorted(episode_history, key=lambda x: (x["final_score"], -x["steps_taken"]), reverse=True)
     top_10 = []
     for i, rec in enumerate(sorted_eps[:10]):
@@ -858,6 +1059,21 @@ async def websocket_endpoint(websocket: WebSocket):
 
 @app.post("/multi-agent/reset")
 def multi_agent_reset(body: MultiAgentResetRequest):
+    """
+    Start a new dual-agent session with split observability.
+
+    Creates two views of the same incident:
+    - Agent A (Observer): sees logs and active alerts only
+    - Agent B (Responder): sees metrics and service dependencies only
+
+    Args:
+        task_id: Task to run (same valid values as POST /reset)
+        seed: Deterministic seed (default: 42)
+
+    Returns:
+        session_id, agent roles, step instructions, and initial observations
+        for both agents.
+    """
     session = DualAgentSession(task_id=body.task_id, seed=body.seed)
     multi_agent_sessions[session.session_id] = session
     return {
@@ -877,6 +1093,19 @@ def multi_agent_reset(body: MultiAgentResetRequest):
 
 @app.post("/multi-agent/step/a/{session_id}")
 def multi_agent_step_a(session_id: str, body: AgentAStepRequest):
+    """
+    Agent A (Observer) shares a finding with Agent B.
+
+    Agent A sees logs and alerts only. Findings are appended to the shared
+    findings log that Agent B can see when deciding its next action.
+
+    Args:
+        session_id: Session ID from POST /multi-agent/reset
+        finding: Text description of what Agent A observed
+
+    Returns:
+        Updated findings log and current Observer-view observation.
+    """
     session = multi_agent_sessions.get(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -885,6 +1114,20 @@ def multi_agent_step_a(session_id: str, body: AgentAStepRequest):
 
 @app.post("/multi-agent/step/b/{session_id}")
 def multi_agent_step_b(session_id: str, body: Action):
+    """
+    Agent B (Responder) takes an action in the environment.
+
+    Agent B sees metrics and service dependencies. It receives all findings
+    shared by Agent A, then executes an action. Action schema is identical
+    to POST /step.
+
+    Args:
+        session_id: Session ID from POST /multi-agent/reset
+        body: Action object (same schema as POST /step)
+
+    Returns:
+        StepResult with reward, done flag, and updated Responder-view observation.
+    """
     session = multi_agent_sessions.get(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -893,6 +1136,13 @@ def multi_agent_step_b(session_id: str, body: Action):
 
 @app.get("/multi-agent/state/{session_id}")
 def multi_agent_state(session_id: str):
+    """
+    Full state for a dual-agent session including both agent perspectives.
+
+    Returns:
+        Session state with findings_log, step count, done flag,
+        and both Observer and Responder observations.
+    """
     session = multi_agent_sessions.get(session_id)
     if not session:
         raise HTTPException(status_code=404, detail="Session not found")
@@ -901,6 +1151,13 @@ def multi_agent_state(session_id: str):
 
 @app.get("/multi-agent/sessions")
 def list_multi_agent_sessions():
+    """
+    List all active dual-agent sessions.
+
+    Returns:
+        List of active sessions with session_id, task_id, current step,
+        done flag, and number of findings shared by Agent A.
+    """
     return [
         {
             "session_id": s.session_id,
@@ -917,11 +1174,32 @@ def list_multi_agent_sessions():
 
 @app.get("/curriculum/status")
 def get_curriculum_status():
+    """
+    Agent mastery levels across all tasks.
+
+    Returns the curriculum engine's current view of agent performance:
+    rolling average score, mastery level (0–3), whether scaffolding is
+    needed, and a diagnostic hint per task.
+
+    Returns:
+        {"tasks": {"easy": {"rolling_avg", "mastery_level", "scaffold_needed", "hint"}, ...},
+         "recommended_task": "easy"}
+    """
     return curriculum_engine.get_status()
 
 
 @app.get("/curriculum/next")
 def get_next_curriculum_task():
+    """
+    Recommended next task for adaptive training.
+
+    Returns the task with the lowest rolling average score among non-mastered
+    tasks. Training loops should call this between episodes to implement
+    curriculum learning automatically.
+
+    Returns:
+        {"recommended_task": "medium", "reasoning": "..."}
+    """
     return {
         "recommended_task": curriculum_engine.get_next_curriculum_task(),
         "reasoning": "Lowest rolling average among non-mastered tasks.",
@@ -930,6 +1208,19 @@ def get_next_curriculum_task():
 
 @app.post("/curriculum/record")
 def record_curriculum_episode(req: CurriculumRecordRequest):
+    """
+    Record an episode result to update the curriculum engine.
+
+    Training loops should call this after each episode to keep the
+    curriculum engine's rolling averages and mastery levels current.
+
+    Args:
+        task_id: Task that was just run
+        score: Episode score (float, typically 0.0–1.0)
+
+    Returns:
+        {"recorded": true, "new_status": {...}} — updated task status
+    """
     try:
         curriculum_engine.record_episode(req.task_id, req.score)
     except ValueError as exc:
@@ -942,6 +1233,18 @@ def record_curriculum_episode(req: CurriculumRecordRequest):
 
 @app.get("/curriculum/hint/{task_id}")
 def get_curriculum_hint(task_id: str):
+    """
+    Get a diagnostic hint and scaffold flag for a specific task.
+
+    If an agent is repeatedly failing a task, this returns a structured hint
+    explaining what the agent should try (e.g., "read logs before acting").
+
+    Args:
+        task_id: One of easy/medium/hard/bonus/security/database/failover
+
+    Returns:
+        {"task_id", "hint", "scaffold_needed": bool, "mastery_level": 0–3}
+    """
     try:
         return {
             "task_id": task_id,
