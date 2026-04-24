@@ -12,114 +12,75 @@ sdk: docker
 ---
 
 # ARIA — DevOps Incident Response
-**ARIA — DevOps Incident Response gym with Adaptive Reward & Incident Architecture (Meta x PyTorch x Hugging Face Hackathon)**
 
-ARIA (Adaptive Reward & Incident Architecture) is a production-grade DevOps incident response environment built to bridge the gap between LLM reasoning and operational intelligence. Unlike static benchmarks, ARIA utilizes a dynamic **Curriculum Engine** that tracks agent mastery across 7 diverse domains—from cascading outages to silent data corruption—automatically adjusting task difficulty and providing intelligent diagnostic scaffolding for struggling agents.
+**ARIA (Adaptive Reward & Incident Architecture)** — an OpenEnv-compliant RL environment where AI agents diagnose and remediate production software incidents.
 
-The platform introduces two major technical innovations for advanced agent training: a seed-based **Procedural Incident Generator** capable of creating infinite, deterministic scenarios that prevent overfitting, and a **Dual-Agent Mode**. This mode enforces a "Split Observability" constraint where an Observer agent and a Responder agent must collaborate across partitioned views (logs vs metrics), mirroring high-stakes SRE collaboration and forcing higher-order communication and causality reasoning.
-
-[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Twilight-13/devops-incident-response/blob/main/train_grpo.ipynb)
 [![HF Space](https://img.shields.io/badge/HuggingFace-Space-orange)](https://huggingface.co/spaces/Arijit-07/devops-incident-response)
+[![Trained Model](https://img.shields.io/badge/HuggingFace-Model-blue)](https://huggingface.co/Arijit-07/aria-devops-llama3b)
+[![Open In Colab](https://colab.research.google.com/assets/colab-badge.svg)](https://colab.research.google.com/github/Twilight-13/devops-incident-response/blob/main/train_grpo.ipynb)
 [![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
-
-## Quick Start
-
-```python
-pip install git+https://github.com/Twilight-13/devops-incident-response.git
-
-from devops_incident_response import DevOpsIncidentEnv, Action, ActionType
-
-with DevOpsIncidentEnv(base_url="https://arijit-07-devops-incident-response.hf.space").sync() as env:
-    obs = env.reset(task_id="easy")
-    result = env.step(Action(action_type=ActionType.READ_LOGS, service="payment-service"))
-    print(f"Reward: {result.reward}")
-```
-
-An OpenEnv-compliant reinforcement learning environment where AI agents learn
-to diagnose and remediate production software incidents across a simulated
-microservices architecture.
-
-Agents read logs, metrics, and runbooks — then take precise actions like
-rollbacks, restarts, and on-call escalations. The reward function gives dense
-partial credit for information gathering, correct diagnosis, and precise
-remediation, while penalising collateral damage and blind actions.
-
-**Seven tasks of escalating difficulty:**
-- **Easy** — single service OOM crash-loop (which service varies by seed)
-- **Medium** — cascading failure from bad deployment with a red-herring alert
-- **Hard** — silent data corruption with no error-rate alerts, only business metric anomalies
-- **Bonus** — two simultaneous independent failures, both must be fixed
-- **Security** — botnet DDoS attack requiring IP blocking
-- **Database** — missing schema index causing DB degradation
-- **Failover** — partial region failure requiring precise multi-region failover
 
 ---
 
-## Motivation
+## Quick Evaluation Guide for Judges
 
-Existing agent benchmarks focus on software engineering (SWE-bench), 
-web navigation (WebArena), or general tool use (AgentBench). None 
-model **operational intelligence** — the ability to reason under 
-uncertainty about live production systems.
+**Live Environment:** https://arijit-07-devops-incident-response.hf.space
+**Trained Model:** https://huggingface.co/Arijit-07/aria-devops-llama3b
+**GitHub:** https://github.com/Twilight-13/devops-incident-response
 
-Yet incident response is one of the highest-stakes, highest-frequency 
-tasks in software organizations. Every company running microservices 
-faces this daily. The skills required are exactly what distinguishes 
-capable AI agents from weak ones:
+### Run a complete episode right now:
+```bash
+# 1. Start episode
+curl -X POST https://arijit-07-devops-incident-response.hf.space/reset \
+  -H "Content-Type: application/json" \
+  -d '{"task_id":"easy","seed":42}'
 
-- **Multi-step information gathering** under time pressure
-- **Causal reasoning** over dependent systems  
-- **Precise action selection** where wrong actions cause additional damage
-- **Signal vs noise discrimination** (red-herring alerts, silent failures)
+# 2. Take an action (read failing service logs)
+curl -X POST https://arijit-07-devops-incident-response.hf.space/step \
+  -H "Content-Type: application/json" \
+  -d '{"action_type":"read_logs","service":"payment-service"}'
 
-This environment fills that gap. It is the first OpenEnv-compliant RL 
-environment specifically designed to benchmark agent performance on 
-production incident response.
-
-### Comparison to Existing Benchmarks
-
-| Benchmark | Domain | Multi-step | Real-world | Partial obs | Dense reward |
-|---|---|---|---|---|---|
-| SWE-bench | Code repair | ✓ | ✓ | ✗ | ✗ |
-| WebArena | Web navigation | ✓ | ✓ | ✓ | ✗ |
-| AgentBench | General tools | ✓ | Partial | ✗ | ✗ |
-| **DevOps-IR (ours)** | **Incident response** | **✓** | **✓** | **✓** | **✓** |
-
-### Episode Architecture
-```mermaid
-graph TD
-    A[Agent] -->|Action| B[DevOpsIncidentEnv]
-    B -->|Observation| A
-    B --> C[ServiceStatus x N]
-    B --> D[AlertList]
-    B --> E[EvidenceLog]
-    B --> F[DependencyMap]
-    B --> G[SLAStatus]
-    H[Grader] -->|score 0-1| I[Episode Analytics]
-    B -->|done=True| H
-    I --> J[steps_to_diagnosis]
-    I --> K[info_gathering_ratio]
-    I --> L[collateral_damage_events]
+# 3. Validate all tasks pass
+curl https://arijit-07-devops-incident-response.hf.space/validate
 ```
 
-### What Makes This Hard
+### Verify training evidence:
+```
+Training curve: https://huggingface.co/Arijit-07/aria-devops-llama3b/resolve/main/training_curve.png
+Training log:   https://huggingface.co/Arijit-07/aria-devops-llama3b/resolve/main/training_log.json
+```
 
-The seven tasks are designed to require qualitatively different 
-reasoning strategies:
+---
 
-- **Easy**: Direct signal reading — logs clearly show OOM, fix is obvious
-- **Medium**: Dependency tracing — must follow the call chain to find root
-- **Hard**: Anomaly correlation — zero error alerts, signal buried in WARN 
-  logs and business metrics across 6 services
-- **Bonus**: Parallel diagnosis — two unrelated failures, agent must 
-  decompose and fix independently
+## Problem Statement
+
+Production incident response is one of the highest-stakes, highest-frequency tasks in software engineering. Every organization running microservices faces cascading failures, silent corruptions, and security incidents daily. Existing agent benchmarks (SWE-bench, WebArena, AgentBench) model code repair and web navigation — none model **operational intelligence**: multi-step causal reasoning under uncertainty about live production systems, where wrong actions cause additional damage.
+
+ARIA fills this gap: the first OpenEnv-compliant RL environment specifically designed to benchmark and train agents on production incident response.
+
+| Benchmark | Domain | Multi-step | Partial obs | Dense reward |
+|---|---|---|---|---|
+| SWE-bench | Code repair | ✓ | ✗ | ✗ |
+| WebArena | Web navigation | ✓ | ✓ | ✗ |
+| AgentBench | General tools | ✓ | ✗ | ✗ |
+| **ARIA (ours)** | **Incident response** | **✓** | **✓** | **✓** |
 
 ---
 
 ## Environment Description
 
-The environment simulates a microservices e-commerce cluster. Depending on the
-task, 3–6 services are active. Services that can appear:
+The environment simulates a microservices e-commerce cluster. Agents receive **partial observations** — they see service health metrics and alerts, but must actively gather evidence by reading logs, metrics, and runbooks before acting.
+
+**What the agent sees (Observation):**
+- `services` — list of ServiceStatus objects: name, status, cpu/memory %, error_rate, latency_p99, replicas, version, SLA breach
+- `active_alerts` — firing alerts with severity and service attribution
+- `recent_logs` — last 10 log lines per service (fetched on demand)
+- `service_dependencies` — call topology (who calls whom)
+- `evidence_log` — accumulated evidence from all reads this episode
+- `sla_status` — per-service SLA status (ok / warning / breached)
+- `available_runbooks` — operational runbook filenames
+
+**Services simulated:**
 
 | Service | Stack | Role |
 |---|---|---|
@@ -129,16 +90,83 @@ task, 3–6 services are active. Services that can appear:
 | `inventory-service` | Java | Manages product stock |
 | `user-service` | Node.js | Auth and profiles |
 | `notification-service` | Python | Email and push alerts |
-| `data-pipeline-service` | Python | Writes catalog data from event stream |
+| `data-pipeline-service` | Python | Writes catalog data |
 | `product-catalog-service` | Go | Stores and serves product data |
-| `price-validation-service` | Python | Validates prices for consistency |
+| `price-validation-service` | Python | Validates prices |
 | `analytics-service` | Python | Aggregates business metrics |
 | `ml-inference-service` | Python | Serves recommendation models |
 | `log-aggregator` | Go | Collects and stores logs |
 
-Each episode seeds a random scenario. The same seed always produces the same
-episode. Different seeds rotate which service fails, which version is bad,
-and exact metric values.
+Each episode seeds a deterministic scenario. Same seed = same episode always. Different seeds rotate which service fails, which version is bad, and exact metric values.
+
+---
+
+## Reward Function
+
+```
+Score = Σ(step_rewards) + efficiency_bonus + diagnosis_bonus
+      - collateral_damage_penalty - blind_action_penalty - noop_penalty
+```
+
+**Exact reward values (easy task):**
+
+| Action | Reward |
+|---|---|
+| `read_logs` on failing service | +0.15 |
+| `read_metrics` on failing service | +0.10 |
+| `read_runbook` | +0.05 |
+| `diagnose` with correct root cause | +0.30 |
+| `restart_service` on correct service | +0.40 |
+| `restart_service` on healthy service | −0.10 (collateral damage) |
+| `noop` (excessive) | −0.04/step |
+| Efficiency bonus (resolved early) | +0.05–0.15 |
+
+**Anti-gaming mechanisms:**
+- **Collateral damage penalty** — restarting healthy services gives negative reward
+- **Blind remediation penalty** — acting before gathering any evidence is penalized
+- **Semantic diagnosis matching** — fuzzy match against ground truth, not exact string
+- All rewards clamped to **[0.001, 0.999]** (non-zero to avoid dead gradients)
+
+---
+
+## Tasks
+
+| ID | Name | Difficulty | Max Steps | Random Agent | Strong LLM |
+|---|---|---|---|---|---|
+| `easy` | Single Service OOM | Easy | 15 | 0.05 | 0.90 |
+| `medium` | Cascading Failure | Medium | 20 | 0.03 | 0.55 |
+| `hard` | Silent Data Corruption | Hard | 25 | 0.01 | 0.35 |
+| `bonus` | Dual Simultaneous Failure | Hard | 25 | 0.01 | 0.40 |
+| `security` | Security Incident (DDoS) | Hard | 20 | 0.01 | 0.35 |
+| `database` | Database Degradation | Hard | 20 | 0.01 | 0.35 |
+| `failover` | Multi-Region Failover | Hard | 25 | 0.01 | 0.25 |
+| `generated` | Procedural Incident | Variable | 20 | 0.02 | 0.60 |
+
+### Task 1 — Single Service OOM (Easy)
+One service crash-loops with OOMKilled pod restarts. Affected service rotates by seed (payment/order/user-service) with different log formats (Java/Python/Node.js). A secondary circuit-breaker alert fires on api-gateway as noise.
+
+**Optimal sequence:** read_logs → read_metrics → diagnose → restart_service
+
+### Task 2 — Cascading Multi-Service Failure (Medium)
+Bad deployment causes connection pool exhaustion in `inventory-service`, cascading to `order-service` timeouts and `api-gateway` errors. A high-CPU alert fires on `notification-service` (red herring — scheduled batch job). The agent must trace the call chain and rollback the root service, not restart downstream victims.
+
+### Task 3 — Silent Data Corruption (Hard)
+All services show green health. Signal buried in `price-validation-service` WARN logs (15% price mismatch) and `analytics-service` anomaly (avg order value 9x baseline). Both correlate with a `data-pipeline-service` deployment 2 minutes earlier. Full credit requires **both** rollback **and** alert_oncall.
+
+### Task 4 — Simultaneous Dual Failure (Bonus)
+Two independent failures: `log-aggregator` disk 100% full (dropping logs) + `ml-inference-service` stuck in model reload CPU loop. Fixing one does not help the other. Both must be resolved independently.
+
+### Task 5 — Security Incident / DDoS
+Botnet targeting login endpoint at 12k req/s from `185.x.x.x` IP range. Agent must read access logs, identify the attack pattern, `block_ip_range`, and `alert_oncall`. Restarts and rollbacks are penalized.
+
+### Task 6 — Database Performance Degradation
+Schema migration added a column without an index — queries do full table scans, spiking DB CPU. Agent must read slow query logs, identify the sequential scan, and `create_index` or `rollback` the migration.
+
+### Task 7 — Multi-Region Failover
+Network partition in us-east-1. Four services support auto-failover to us-west-2 (api-gateway, cdn-service, order-service, redis-cache). Two must NOT be failed over: `payment-service` (PCI compliance) and `postgres-primary` (replication lag → data loss). Wrong failover = −0.25 penalty.
+
+### Task 8 — Procedural Incident (Generated)
+ARIA's `IncidentFactory` generates deterministic scenarios from integer seeds 0–99999. Each seed produces a unique combination of failure mode (OOM / cascade / corruption / DDoS / database / network partition), affected service, severity, and noise alerts. Infinite unique training scenarios.
 
 ---
 
@@ -146,7 +174,7 @@ and exact metric values.
 
 | Action | Parameters | Description |
 |---|---|---|
-| `diagnose` | `root_cause` (str) | Record your root cause hypothesis |
+| `diagnose` | `root_cause` (str) | Record root cause hypothesis (fuzzy-matched against ground truth) |
 | `read_logs` | `service` (str) | Fetch recent log lines for a service |
 | `read_metrics` | `service` (str) | Fetch CPU, memory, error rate, P99 latency |
 | `read_runbook` | `runbook` (str) | Read an operational runbook |
@@ -155,199 +183,62 @@ and exact metric values.
 | `rollback` | `service`, `version` | Roll back to a previous artifact version |
 | `scale_up` | `service` (str) | Increase replica count |
 | `alert_oncall` | `reason` (str) | Page the on-call engineering team |
-| `acknowledge` | `service` (alert id) | Acknowledge an active alert |
-| `noop` | — | Take no action |
+| `acknowledge` | `service` | Acknowledge an active alert |
+| `noop` | — | Take no action this step |
 | `block_ip_range` | `service`, `ip_range` | Block a CIDR IP range (DDoS mitigation) |
 | `create_index` | `table`, `column` | Create a missing database index |
-| `failover` | `service`, `target_region` | Fail over a service to another region |
+| `failover` | `service`, `target_region` | Failover a service to another region |
 
 ---
 
-## Observation Space
+## ARIA Features
 
-Each step returns a Pydantic `Observation` with:
+### Curriculum Engine (`GET /curriculum/status`, `POST /curriculum/record`)
+Tracks agent mastery across all 7 tasks. For each task it maintains:
+- **rolling_avg** — score rolling average (last 10 episodes)
+- **mastery_level** — 0 (novice) → 3 (expert)
+- **scaffold_needed** — true if agent is consistently failing (score < 0.3)
+- **hint** — diagnostic hint for scaffolding
 
-```
-Observation
-├── step, max_steps, task_id, task_description
-├── services: List[ServiceStatus]
-│   ├── name, status, cpu_percent, memory_percent
-│   ├── error_rate, latency_p99_ms
-│   ├── replicas_running, replicas_desired
-│   ├── current_version, last_deployed
-│   ├── sla_breach, minutes_degraded        ← NEW: SLA tracking
-├── active_alerts: List[Alert]
-├── recent_logs: Dict[str, List[str]]
-├── service_dependencies: List[ServiceDependency]  ← NEW: call topology
-│   ├── service, calls, called_by
-├── evidence_log: List[EvidenceEntry]              ← NEW: accumulated reads
-│   ├── step, source, summary, raw
-├── sla_status: Dict[str, str]                     ← NEW: ok/warning/breached
-├── available_runbooks: List[str]
-├── last_action_result, last_action_error
-├── incident_start_time, elapsed_minutes
-```
+Training loops can call `GET /curriculum/next` to get the recommended next task based on current performance, implementing adaptive difficulty automatically.
 
----
+### Incident Generator (`GET /generate/preview?seed=N`)
+`IncidentFactory` generates unique, deterministic incidents from integer seeds. Each incident has:
+- `failure_mode`: oom / cascade / corruption / security / database / network_partition
+- `severity`: sev1 / sev2 / sev3
+- `affected_service`, `description`, `noise_alerts`, `difficulty_score`
 
-## Tasks
+Use with `POST /reset {"task_id": "generated", "seed": <N>}` for infinite training variety.
 
-### Task 1 — Single Service OOM (Easy)
-**Max steps:** 15 | **Expected strong LLM score:** 0.85–1.00
+### Dual-Agent Mode (`POST /multi-agent/reset`)
+Split-observability multi-agent protocol:
+- **Agent A (Observer)** — sees logs and alerts only; shares findings via `POST /multi-agent/step/a/{session_id}`
+- **Agent B (Responder)** — sees metrics and dependencies only; takes actions via `POST /multi-agent/step/b/{session_id}`
 
-One service crash-loops with an out-of-memory error. The affected service
-rotates by seed (payment-service / order-service / user-service), with
-different log formats (Java / Python / Node.js). A secondary circuit-breaker
-alert fires on api-gateway.
-
-**Reward breakdown:** read_logs (+0.15), read_metrics (+0.10), runbook (+0.05),
-correct diagnosis (+0.30), restart correct service (+0.40).
-Penalties: healthy restart (−0.10), excessive noop (−0.04/step).
+Forces communication and higher-order causal reasoning — mirrors real SRE on-call collaboration.
 
 ---
 
-### Task 2 — Cascading Multi-Service Failure (Medium)
-**Max steps:** 20 | **Expected strong LLM score:** 0.55–0.75
+## Training Results
 
-A bad deployment causes connection pool exhaustion or a NullPointerException
-in `inventory-service`, cascading timeouts to `order-service` and elevated
-error rates on `api-gateway`. A high-CPU alert fires on `notification-service`
-(red herring — scheduled batch job). The dependency map reveals the chain:
-`api-gateway → order-service → inventory-service`.
+**Model:** [Arijit-07/aria-devops-llama3b](https://huggingface.co/Arijit-07/aria-devops-llama3b)
+**Base:** `unsloth/Llama-3.2-3B-Instruct`
+**Algorithm:** GRPO (Group Relative Policy Optimization)
+**Framework:** HuggingFace TRL + Unsloth
+**Episodes:** 140 training episodes
 
-**Reward breakdown:** investigate inventory (+0.20), trace cascade (+0.05),
-runbook (+0.05), correct diagnosis (+0.25), rollback root service (+0.30–0.40).
-Penalties: chasing red herring (−0.05), treating symptom before root (−0.10).
+| Task | Pre-training Score | Post-training Score | Δ |
+|---|---|---|---|
+| easy | 0.42 | 0.87 | +0.45 |
+| medium | 0.18 | 0.51 | +0.33 |
+| hard | 0.05 | 0.22 | +0.17 |
+| **average** | **0.22** | **0.53** | **+0.31** |
 
----
+Training evidence:
+- Training curve: `https://huggingface.co/Arijit-07/aria-devops-llama3b/resolve/main/training_curve.png`
+- Training log: `https://huggingface.co/Arijit-07/aria-devops-llama3b/resolve/main/training_log.json`
 
-### Task 3 — Silent Data Corruption (Hard)
-**Max steps:** 25 | **Expected strong LLM score:** 0.30–0.50
-
-All services show green health — zero error rates, normal latency, no standard
-alerts. The signal is buried in `price-validation-service` WARN logs (15% price
-mismatch rate vs 0.2% baseline) and an `analytics-service` anomaly (avg order
-value $847 vs $89 baseline). Both correlate with a `data-pipeline-service`
-deployment 2 minutes earlier.
-
-Three noise alerts distract: TLS renewal, analytics backlog, replica lag.
-Full credit requires **both** rollback AND alert_oncall.
-
-**Reward breakdown:** read subtle signals (+0.15–0.20), check pipeline metrics
-(+0.10), runbook (+0.05), correct diagnosis (+0.20), rollback pipeline (+0.25),
-alert_oncall (+0.15).
-Penalties: any restart/scale (−0.15).
-
----
-
-### Task 4 — Simultaneous Dual Failure (Bonus)
-**Max steps:** 25 | **Expected strong LLM score:** 0.35–0.55
-
-Two completely independent failures at once:
-1. `log-aggregator` disk 100% full (dropping 48k log messages/min)
-2. `ml-inference-service` stuck in a model checksum reload loop (CPU 99%+)
-
-Fixing one does not help the other. Full credit requires resolving both:
-alert_oncall for disk cleanup AND rollback/restart ml-inference.
-
----
-
-### Task 5 — Security Incident Response (DDoS Attack)
-**Max steps:** 20 | **Expected strong LLM score:** 0.40–0.60
-
-A botnet is targeting the login endpoint with 12,000 req/s from the 185.x.x.x IP range. Standard rate limiting is ineffective (distributed attack). Agent must identify the attack pattern in access logs, diagnose the DDoS, block the IP range, and alert the security team. Neither restart nor rollback helps — wrong actions are penalized.
-
----
-
-### Task 6 — Database Performance Degradation
-**Max steps:** 20 | **Expected strong LLM score:** 0.45–0.65
-
-A schema migration added a column without an index. All services reading that table degrade. Agent must read postgres slow query logs, identify the sequential table scan, and either create the missing index or rollback the migration. Restarting services does nothing.
-
----
-
-### Task 7 — Multi-Region Failover (Partial)
-**Max steps:** 25 | **Expected strong LLM score:** 0.35–0.55
-
-A network partition affects us-east-1. Four services support automatic failover to us-west-2 and should be switched. Two services (payment-service, postgres-primary) must NOT be failed over — payment due to PCI compliance, postgres due to replication lag causing data loss. Incorrectly failing over the wrong services incurs a heavy -0.25 penalty.
-
----
-
-## Reward Function Design
-
-```
-Score = Σ(step rewards) + efficiency_bonus + diagnosis_bonus
-      - collateral_damage_penalty - blind_action_penalty - noop_penalty
-```
-
-Key properties:
-- **Dense signal** — never zero for an entire episode unless truly random
-- **Information-first** — reading before acting is rewarded
-- **Precision required** — wrong service gives 0 or negative
-- **Time pressure** — SLA status worsens each step; efficiency bonus rewards speed
-- **Two-action requirement** — hard and bonus tasks require multiple correct actions
-
-All rewards clamped to **[0.0, 1.0]**.
-
----
-
-## Setup Instructions
-
-### Docker (recommended for judging)
-
-```bash
-docker build -t devops-incident-env .
-docker run -p 7860:7860 devops-incident-env
-curl http://localhost:7860/health
-```
-
-### Local Python
-
-```bash
-pip install -r requirements.txt
-uvicorn api:app --host 0.0.0.0 --port 7860
-```
-
-### Direct import
-
-```python
-from env import DevOpsIncidentEnv
-from models import Action, ActionType
-
-env = DevOpsIncidentEnv(task_id="easy", seed=42)
-obs = env.reset()
-
-# Service dependency map is in obs.service_dependencies
-# Evidence log accumulates in obs.evidence_log as you read
-
-result = env.step(Action(action_type=ActionType.READ_LOGS, service="payment-service"))
-print(result.reward)          # 0.15
-print(result.observation.evidence_log[-1].summary)
-```
-
-### Validation
-
-```bash
-python validate.py    # 22 automated checks, exit 0 = all pass
-```
-
----
-
-## Running the Inference Baseline
-
-```bash
-export API_BASE_URL="https://router.huggingface.co/v1"
-export MODEL_NAME="meta-llama/Llama-3.3-70B-Instruct"
-export HF_TOKEN="hf_your_token_here"
-
-python inference.py
-```
-
----
-
-## Baseline Scores
-
-Run with `meta-llama/Llama-3.3-70B-Instruct`, seed=42, temperature=0.1:
+**Baseline (Llama-3.3-70B-Instruct, seed=42, temperature=0.1):**
 
 | Task | Score | Resolved | Steps |
 |---|---|---|---|
@@ -355,42 +246,80 @@ Run with `meta-llama/Llama-3.3-70B-Instruct`, seed=42, temperature=0.1:
 | medium | 0.6800 | ✓ | 9 |
 | hard | 0.3500 | ✗ | 25 |
 | bonus | 0.3800 | ✗ | 25 |
-| security | 0.00 | run inference.py to reproduce | 20 |
-| database | 0.00 | run inference.py to reproduce | 20 |
-| failover | 0.00 | run inference.py to reproduce | 25 |
-| **average** | **0.6025** | — | — |
-
-*Scores vary with model and temperature. Run with seed=42 for reproducibility.*
+| security | — | run `python inference.py` | 20 |
+| database | — | run `python inference.py` | 20 |
+| failover | — | run `python inference.py` | 25 |
 
 ---
 
-## RL Training Integration
+## Setup Instructions
 
-This environment is designed for GRPO and other policy gradient methods.
-See the training notebook for a full example:
-
+### Docker (recommended for judging)
 ```bash
-git clone https://github.com/Twilight-13/devops-incident-response
-jupyter notebook train_grpo.ipynb
+docker build -t devops-incident-env .
+docker run -p 7860:7860 devops-incident-env
+curl http://localhost:7860/health
 ```
 
-Compatible with: TRL, SkyRL, ART, Oumi, Axolotl.
+### Local Python
+```bash
+pip install -r requirements.txt
+uvicorn server.app:app --host 0.0.0.0 --port 7860
+```
+
+### Direct Python import
+```python
+from env import DevOpsIncidentEnv
+from models import Action, ActionType
+
+env = DevOpsIncidentEnv(task_id="easy", seed=42)
+obs = env.reset()
+
+result = env.step(Action(action_type=ActionType.READ_LOGS, service="payment-service"))
+print(result.reward)   # 0.15
+print(result.observation.evidence_log[-1].summary)
+```
+
+### Run validation
+```bash
+python validate.py    # 22 automated checks, exit 0 = all pass
+```
+
+### Run inference baseline
+```bash
+export API_BASE_URL="https://router.huggingface.co/v1"
+export MODEL_NAME="meta-llama/Llama-3.3-70B-Instruct"
+export HF_TOKEN="hf_your_token_here"
+python inference.py
+```
 
 ---
 
 ## API Reference
 
-| Endpoint | Method | Body | Description |
-|---|---|---|---|
-| `/health` | GET | — | Returns `{"status": "ok"}` |
-| `/reset` | POST | `{"task_id": "easy", "seed": 42}` | Start new episode |
-| `/step` | POST | `Action` JSON | Take one action |
-| `/state` | GET | — | Full state + ground truth + analytics |
-| `/tasks` | GET | — | List all 7 tasks |
-| `/validate` | GET | — | Self-validation report for all tasks |
-| `/ws` | WebSocket | - | Real-time agent-environment communication |
-| `/metrics` | GET | - | Aggregate episode statistics |
-| `/leaderboard` | GET | - | Top scoring episodes |
+| Endpoint | Method | Description |
+|---|---|---|
+| `/health` | GET | Health check — returns `{"status":"ok"}` |
+| `/about` | GET | Full environment metadata for judges |
+| `/reset` | POST | Start episode — body: `{"task_id":"easy","seed":42}` |
+| `/step` | POST | Take one action — body: `{"action_type":"read_logs","service":"payment-service"}` |
+| `/state` | GET | Full state with ground truth and analytics |
+| `/tasks` | GET | List all 8 tasks with descriptions |
+| `/validate` | GET | Self-validation — runs all 7 tasks, returns per-task scores |
+| `/generate/preview` | GET | Preview a procedural incident — `?seed=42` |
+| `/curriculum/status` | GET | Agent mastery levels across all tasks |
+| `/curriculum/next` | GET | Recommended next task for training |
+| `/curriculum/record` | POST | Record episode result — body: `{"task_id":"easy","score":0.87}` |
+| `/curriculum/hint/{task_id}` | GET | Get diagnostic hint and scaffold flag |
+| `/multi-agent/reset` | POST | Start dual-agent session |
+| `/multi-agent/step/a/{id}` | POST | Agent A (Observer) shares a finding |
+| `/multi-agent/step/b/{id}` | POST | Agent B (Responder) takes an action |
+| `/multi-agent/state/{id}` | GET | Dual-agent session state |
+| `/multi-agent/sessions` | GET | List active dual-agent sessions |
+| `/metrics` | GET | Aggregate episode statistics |
+| `/leaderboard` | GET | Top scoring episodes |
+| `/ws` | WebSocket | Real-time agent-environment communication |
+| `/docs` | GET | Interactive Swagger UI |
 
 ---
 
@@ -400,9 +329,16 @@ Compatible with: TRL, SkyRL, ART, Oumi, Axolotl.
 openenv validate .
 ```
 
-All endpoints comply with the OpenEnv spec. `openenv.yaml` contains full
-metadata including 7 task definitions, action/observation space descriptions,
-expected score ranges, and Docker configuration.
+All endpoints comply with the OpenEnv spec. `openenv.yaml` contains full metadata including 8 task definitions (7 curated + 1 procedural), 14 action types, observation space schema, reward design, Docker configuration, and training metadata.
+
+**Episode flow:**
+```
+POST /reset → Observation
+POST /step  → StepResult (observation, reward, done, info)
+GET  /state → State (full state + ground truth + action history)
+```
+
+**Determinism:** Same `(task_id, seed)` always produces the same episode. Validated by `validate.py` check "Same seed always produces same episode".
 
 ---
 

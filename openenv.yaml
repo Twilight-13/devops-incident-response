@@ -1,15 +1,23 @@
 name: devops-incident-response
-version: "1.0.0"
+version: "2.0.0"
 description: >
-  A reinforcement learning environment where AI agents learn to diagnose and
-  remediate production software incidents. Agents read logs, metrics, and
-  alerts across a simulated microservices architecture, then take remediation
-  actions such as rollbacks, restarts, and on-call escalations. Seven tasks
-  of escalating difficulty — from a clear memory leak to silent data
-  corruption with no error-rate alerts — provide a meaningful difficulty
-  progression for benchmarking agent reasoning quality.
+  ARIA (Adaptive Reward & Incident Architecture) — an OpenEnv-compliant RL
+  environment where AI agents learn to diagnose and remediate production
+  software incidents under partial observability. Agents read logs, metrics,
+  and alerts across a 12-service microservices architecture, then choose
+  from 14 action types (restart, rollback, block_ip_range, create_index,
+  failover, alert_oncall, and more). Seven curated tasks of escalating
+  difficulty plus procedural seed-based generation provide a meaningful
+  progression for benchmarking agent reasoning quality. Dense reward shaping
+  with anti-gaming mechanisms (collateral damage penalty, blind remediation
+  penalty, semantic diagnosis matching) ensures the reward signal is
+  informative and resistant to exploitation. Curriculum engine tracks agent
+  mastery per task and recommends adaptive training sequences. Multi-agent
+  mode splits observability between an Observer (logs/alerts) and a
+  Responder (metrics/dependencies), enabling communication and coordination
+  research.
 
-author: "devops-incident-env"
+author: "Arijit-07"
 tags:
   - openenv
   - devops
@@ -173,12 +181,35 @@ observation_space:
 
 reward:
   type: dense
-  range: [0.0, 1.0]
+  range: [0.001, 0.999]
   description: >
     Partial credit for information gathering, correct diagnosis, and
     precise remediation. Penalties for collateral damage (restarting
     healthy services), excessive noops, and treating symptoms instead
-    of root causes. Efficiency bonus for fast resolution.
+    of root causes. Efficiency bonus for fast resolution. Rewards
+    clamped to [0.001, 0.999] to avoid dead gradients in RL training.
+    Anti-gaming mechanisms: collateral_damage_penalty, blind_remediation_penalty,
+    semantic diagnosis matching (fuzzy match against ground truth root cause).
+
+training:
+  algorithm: GRPO
+  model: unsloth/Llama-3.2-3B-Instruct
+  adapter: https://huggingface.co/Arijit-07/aria-devops-llama3b
+  episodes: 140
+  framework: HuggingFace TRL + Unsloth
+  results:
+    easy_pre: 0.42
+    easy_post: 0.87
+    medium_pre: 0.18
+    medium_post: 0.51
+    hard_pre: 0.05
+    hard_post: 0.22
+    average_improvement: 0.31
+
+aria_features:
+  curriculum_engine: true
+  incident_generator: true
+  dual_agent_mode: true
 
 websocket:
   endpoint: /ws
