@@ -587,22 +587,6 @@ def main():
         console.print(f"[red]✗ Cannot reach Space: {e}[/red]")
         sys.exit(1)
 
-    # Task / seed selection
-    console.print(
-        "\nAvailable tasks: easy | medium | hard | "
-        "security | database | failover | bonus"
-    )
-    console.print("Task \[easy]: ", end="")
-    task_raw = input().strip().lower()
-    task_id  = (task_raw
-                if task_raw in ("easy", "medium", "hard", "security",
-                                "database", "failover", "bonus", "generated")
-                else DEFAULT_TASK)
-
-    console.print("Seed \[42]: ", end="")
-    seed_raw = input().strip()
-    seed     = int(seed_raw) if seed_raw.isdigit() else DEFAULT_SEED
-
     # Mode selector
     console.print("\nRun with real LLM? \[y/n]: ", end="")
     choice = input().strip().lower()
@@ -613,8 +597,31 @@ def main():
         use_llm = False
         model, tokenizer = None, None
 
-    run_demo(task_id=task_id, seed=seed, use_llm=use_llm,
-             model=model, tokenizer=tokenizer)
+    import random
+    TASK_ROTATION = [
+        'easy', 'medium', 'hard', 'security',
+        'database', 'failover', 'bonus', 'generated'
+    ]
+    episode_count = 0
+
+    while True:
+        task_id = TASK_ROTATION[episode_count % len(TASK_ROTATION)]
+        seed = random.randint(0, 9999)
+        episode_count += 1
+
+        run_demo(task_id=task_id, seed=seed, use_llm=use_llm,
+                 model=model, tokenizer=tokenizer)
+
+        next_task_id = TASK_ROTATION[episode_count % len(TASK_ROTATION)]
+        next_seed = random.randint(0, 9999)
+        
+        console.print(f"\n[bold cyan]Next: {next_task_id} | Seed: {next_seed} | Starting in 3...[/bold cyan]")
+        time.sleep(1)
+        console.print("[bold cyan]2...[/bold cyan]")
+        time.sleep(1)
+        console.print("[bold cyan]1...[/bold cyan]")
+        time.sleep(1)
+
 
 
 if __name__ == "__main__":
