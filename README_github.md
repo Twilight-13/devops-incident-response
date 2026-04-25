@@ -1,28 +1,3 @@
----
-title: ARIA DevOps Incident Response
-emoji: 🚨
-colorFrom: blue
-colorTo: red
-sdk: docker
-pinned: true
-license: apache-2.0
-tags:
-  - openenv
-  - reinforcement-learning
-  - devops
-  - incident-response
-  - rl-environment
-  - multi-agent
-  - llm-agent
-  - grpo
-  - curriculum-learning
-  - huggingface
-  - pytorch
-  - meta
-short_description: OpenEnv RL environment for production incident response — 7 tasks, curriculum, dual-agent, trained Llama-3B
----
-
-
 # ARIA — DevOps Incident Response
 ### *The first OpenEnv RL environment for production incident response*
 
