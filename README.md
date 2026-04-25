@@ -19,7 +19,7 @@ tags:
   - huggingface
   - pytorch
   - meta
-short_description: OpenEnv RL environment for production incident response — 7 tasks, curriculum, dual-agent, trained Llama-3B
+short_description: RL environment for DevOps incident response agents
 ---
 
 
