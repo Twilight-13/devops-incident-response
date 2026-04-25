@@ -11,3 +11,4 @@ build/
 .vscode/
 *.log
 .claude/
+kaggle_training/results/
