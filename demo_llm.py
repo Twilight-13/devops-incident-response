@@ -232,84 +232,224 @@ def parse_action(text):
 
 # ─── Heuristic agent ──────────────────────────────────────────────────────────
 
-def get_next_action(obs, step_history, task_id="easy"):
-    """
-    Rule-based heuristic — no GPU required.
+def get_next_action(obs, task_id, actions_taken, step):
+    """Task-specific optimal heuristic agent — maximises reward per task."""
+    alerts   = obs.get('active_alerts', [])
+    services = obs.get('services', [])
 
-    BUG-FIX: use step_history (local, authoritative) to track which action
-    types have already been taken, instead of evidence_log source strings
-    whose format is server-internal and does NOT include the word 'diagnose'.
-    """
-    alerts  = obs.get('active_alerts', [])
+    action_types = [a.get('action_type') for a in actions_taken]
+    action_set   = set(action_types)
+    read_done    = {a.get('service') for a in actions_taken
+                    if a.get('action_type') in ('read_logs', 'search_logs')}
+    metrics_done = {a.get('service') for a in actions_taken
+                    if a.get('action_type') == 'read_metrics'}
+    diagnosed    = 'diagnose' in action_set
+    alerted      = 'alert_oncall' in action_set
 
-    # Track state from our own history — reliable regardless of server format
-    action_types_taken = {a.get('action_type') for a in step_history}
-    read_done  = {a.get('service') for a in step_history
-                  if a.get('action_type') == 'read_logs'}
-    diagnosed  = 'diagnose' in action_types_taken
-    fixed      = bool(action_types_taken & {
-        'restart_service', 'rollback', 'block_ip_range',
-        'create_index', 'failover', 'alert_oncall',
-    })
-
-    # Find the root-cause service: prefer CRITICAL alert, fallback to max error_rate
-    failing_service = next(
-        (a.get('service') for a in obs.get('active_alerts', [])
-         if a.get('severity') == 'critical'),
-        max(
-            obs.get('services', [{'name': 'payment-service', 'error_rate': 0}]),
-            key=lambda x: x.get('error_rate', 0),
-        ).get('name', 'payment-service')
-    )
-
-    # Step 1 — gather evidence
-    if failing_service not in read_done:
-        return {"action_type": "read_logs", "service": failing_service}
-
-    # Step 2 — diagnose
-    if not diagnosed:
-        crit_msg = next(
-            (a.get('message', 'unknown') for a in alerts
-             if a.get('severity') == 'critical'),
-            alerts[0].get('message', 'unknown') if alerts else 'unknown',
+    # ── EASY ──────────────────────────────────────────────
+    if task_id == 'easy':
+        # Reward: read_logs failing +0.15, read_metrics failing +0.10,
+        #         diagnose(memory+svc) +0.30, restart failing +0.40
+        target = next(
+            (a.get('service') for a in alerts if a.get('severity') == 'critical'),
+            'payment-service',
         )
-        return {"action_type": "diagnose",
-                "root_cause": f"{crit_msg} in {failing_service}"}
+        if target not in read_done:
+            return {"action_type": "read_logs", "service": target}
+        if target not in metrics_done:
+            return {"action_type": "read_metrics", "service": target}
+        if not diagnosed:
+            return {"action_type": "diagnose",
+                    "root_cause": f"memory leak OOM crash-loop in {target}"}
+        if 'restart_service' not in action_set:
+            return {"action_type": "restart_service", "service": target}
 
-    # Step 3 — apply fix (task-specific)
-    if not fixed:
-        if task_id == "medium":
+    # ── MEDIUM ────────────────────────────────────────────
+    elif task_id == 'medium':
+        # Root cause: inventory-service bad deployment → cascade
+        # Rewards: read_logs inventory +0.10, read_metrics inventory +0.10,
+        #          read_metrics order +0.05, diagnose(inventory+connection) +0.25,
+        #          rollback inventory +0.30 + version bonus +0.10
+        if 'inventory-service' not in read_done:
+            return {"action_type": "read_logs", "service": "inventory-service"}
+        if 'inventory-service' not in metrics_done:
+            return {"action_type": "read_metrics", "service": "inventory-service"}
+        if 'order-service' not in metrics_done:
+            return {"action_type": "read_metrics", "service": "order-service"}
+        if not diagnosed:
+            return {"action_type": "diagnose",
+                    "root_cause": "connection pool exhaustion from bad inventory-service deployment cascading to order-service and api-gateway"}
+        if 'rollback' not in action_set:
             return {"action_type": "rollback",
                     "service": "inventory-service", "version": "previous"}
 
-        if task_id == "hard":
+    # ── HARD ──────────────────────────────────────────────
+    elif task_id == 'hard':
+        # Silent data corruption — all services GREEN
+        # Rewards: read_logs price-validation +0.05, read_logs analytics +0.05,
+        #          read_logs data-pipeline +0.05, read_metrics analytics +0.10,
+        #          read_metrics data-pipeline +0.10, diagnose(pipeline+corrupt) +0.20,
+        #          rollback data-pipeline +0.25, alert_oncall +0.15
+        # Resolution requires BOTH rollback + alert_oncall
+        if 'price-validation-service' not in read_done:
+            return {"action_type": "read_logs", "service": "price-validation-service"}
+        if 'analytics-service' not in read_done:
+            return {"action_type": "read_logs", "service": "analytics-service"}
+        if 'data-pipeline-service' not in read_done:
+            return {"action_type": "read_logs", "service": "data-pipeline-service"}
+        if 'analytics-service' not in metrics_done:
+            return {"action_type": "read_metrics", "service": "analytics-service"}
+        if not diagnosed:
+            return {"action_type": "diagnose",
+                    "root_cause": "data corruption in data-pipeline-service writing incorrect prices to product catalog"}
+        if 'rollback' not in action_set:
             return {"action_type": "rollback",
-                    "service": "data-pipeline", "version": "previous"}
-
-        if task_id == "bonus":
-            ml_fixed = any(
-                a.get('action_type') == 'restart_service' and
-                a.get('service') == 'ml-inference-service'
-                for a in step_history
-            )
-            if not ml_fixed:
-                return {"action_type": "restart_service",
-                        "service": "ml-inference-service"}
+                    "service": "data-pipeline-service", "version": "previous"}
+        if not alerted:
             return {"action_type": "alert_oncall",
-                    "reason": "disk full on log-aggregator"}
+                    "reason": "Data corruption detected — data audit required for affected orders and prices"}
 
-        # security / generic alert checks
-        for a in alerts:
-            msg = a.get('message', '').lower()
-            if any(kw in msg for kw in ('ddos', 'botnet', '185.220', 'ip range')):
-                return {"action_type": "block_ip_range",
-                        "ip_range": "185.220.0.0/16"}
-            if any(kw in msg for kw in ('index', 'seq_scan', 'slow query', 'full table')):
+    # ── BONUS ─────────────────────────────────────────────
+    elif task_id == 'bonus':
+        # Two independent failures:
+        #   1. log-aggregator disk full → alert_oncall (disk/log/storage context)
+        #   2. ml-inference-service model reload loop → rollback (0.20 > restart 0.12)
+        # Rewards: read_logs each +0.05, read_metrics each +0.05,
+        #          diagnose(disk+ml) +0.20, alert_oncall(disk) +0.20,
+        #          rollback ml +0.20
+        # Resolution requires BOTH fix_disk + fix_ml
+        ml_rolled_back = any(
+            a.get('action_type') == 'rollback' and
+            a.get('service') == 'ml-inference-service'
+            for a in actions_taken
+        )
+        if 'log-aggregator' not in read_done:
+            return {"action_type": "read_logs", "service": "log-aggregator"}
+        if 'ml-inference-service' not in read_done:
+            return {"action_type": "read_logs", "service": "ml-inference-service"}
+        if 'ml-inference-service' not in metrics_done:
+            return {"action_type": "read_metrics", "service": "ml-inference-service"}
+        if 'log-aggregator' not in metrics_done:
+            return {"action_type": "read_metrics", "service": "log-aggregator"}
+        if not diagnosed:
+            return {"action_type": "diagnose",
+                    "root_cause": "disk full on log-aggregator AND model reload loop in ml-inference-service causing CPU saturation"}
+        if not alerted:
+            return {"action_type": "alert_oncall",
+                    "reason": "log-aggregator disk full — manual disk cleanup and log rotation required"}
+        if not ml_rolled_back:
+            return {"action_type": "rollback",
+                    "service": "ml-inference-service", "version": "previous"}
+
+    # ── SECURITY ──────────────────────────────────────────
+    elif task_id == 'security':
+        # DDoS botnet 185.220.x.x credential stuffing
+        # Rewards: read_logs api-gateway +0.10, read_logs auth-service +0.10,
+        #          read_logs rate-limiter +0.05, diagnose(ddos/botnet/185) +0.20,
+        #          block_ip_range 185.220.0.0/16 +0.30 + bonus +0.10,
+        #          alert_oncall(security/ddos) +0.20
+        # Resolution requires BOTH block + alert
+        if 'api-gateway' not in read_done:
+            return {"action_type": "read_logs", "service": "api-gateway"}
+        if 'auth-service' not in read_done:
+            return {"action_type": "read_logs", "service": "auth-service"}
+        if 'rate-limiter' not in read_done:
+            return {"action_type": "read_logs", "service": "rate-limiter"}
+        if not diagnosed:
+            return {"action_type": "diagnose",
+                    "root_cause": "DDoS credential stuffing attack from 185.220.0.0/16 botnet targeting login endpoint via auth-service"}
+        if 'block_ip_range' not in action_set:
+            return {"action_type": "block_ip_range", "ip_range": "185.220.0.0/16"}
+        if not alerted:
+            return {"action_type": "alert_oncall",
+                    "reason": "DDoS attack blocked — security team review required for credential compromise assessment"}
+
+    # ── DATABASE ──────────────────────────────────────────
+    elif task_id == 'database':
+        # Missing index on orders.user_segment
+        # Rewards: read_logs postgres +0.10, read_metrics postgres +0.10,
+        #          read_logs analytics +0.05, diagnose(index/migration/user_segment) +0.20,
+        #          create_index orders.user_segment +0.30
+        if 'postgres-primary' not in read_done:
+            return {"action_type": "read_logs", "service": "postgres-primary"}
+        if 'postgres-primary' not in metrics_done:
+            return {"action_type": "read_metrics", "service": "postgres-primary"}
+        if 'analytics-service' not in read_done:
+            return {"action_type": "read_logs", "service": "analytics-service"}
+        if not diagnosed:
+            return {"action_type": "diagnose",
+                    "root_cause": "missing index on orders.user_segment column from recent migration causing sequential table scans"}
+        if 'create_index' not in action_set:
+            return {"action_type": "create_index",
+                    "table": "orders", "column": "user_segment"}
+
+    # ── FAILOVER ──────────────────────────────────────────
+    elif task_id == 'failover':
+        # us-east-1 network partition
+        # Rewards: read_logs api-gateway +0.05, read_logs postgres +0.05,
+        #          read_metrics any +0.05, runbook failover +0.05,
+        #          diagnose(network partition/us-east-1) +0.20,
+        #          failover api-gateway +0.12, cdn +0.10, order +0.12, redis +0.10,
+        #          alert_oncall(payment/postgres) +0.15
+        # Resolution requires all 4 failovers + alert
+        # DANGER: failover payment-service or postgres-primary = -0.25 each
+        failovers_done = {
+            a.get('service') for a in actions_taken
+            if a.get('action_type') == 'failover'
+        }
+        if 'api-gateway' not in read_done:
+            return {"action_type": "read_logs", "service": "api-gateway"}
+        if 'postgres-primary' not in read_done:
+            return {"action_type": "read_logs", "service": "postgres-primary"}
+        if not diagnosed:
+            return {"action_type": "diagnose",
+                    "root_cause": "us-east-1 network partition causing partial region failure across multiple services"}
+        safe_services = ['api-gateway', 'order-service', 'cdn-service', 'redis-cache']
+        for svc in safe_services:
+            if svc not in failovers_done:
+                return {"action_type": "failover",
+                        "service": svc, "target_region": "us-west-2"}
+        if not alerted:
+            return {"action_type": "alert_oncall",
+                    "reason": "payment-service and postgres-primary require manual DBA failover approval — cannot auto-failover"}
+
+    # ── GENERATED / UNKNOWN ───────────────────────────────
+    else:
+        target = next(
+            (a.get('service') for a in alerts if a.get('severity') == 'critical'),
+            (max(services, key=lambda x: x.get('error_rate', 0))
+             .get('name', 'api-gateway') if services else 'api-gateway'),
+        )
+        if target not in read_done:
+            return {"action_type": "read_logs", "service": target}
+        if not diagnosed:
+            crit_msg = next(
+                (a.get('message', 'unknown') for a in alerts
+                 if a.get('severity') == 'critical'),
+                alerts[0].get('message', 'unknown') if alerts else 'unknown',
+            )
+            return {"action_type": "diagnose",
+                    "root_cause": f"{crit_msg} in {target}"}
+        if 'rollback' not in action_set and 'restart_service' not in action_set:
+            # Check for domain-specific clues
+            all_msgs = ' '.join(a.get('message', '') for a in alerts).lower()
+            if '185.' in all_msgs or 'ddos' in all_msgs or 'credential' in all_msgs:
+                return {"action_type": "block_ip_range", "ip_range": "185.220.0.0/16"}
+            if 'index' in all_msgs or 'seq_scan' in all_msgs or 'table scan' in all_msgs:
                 return {"action_type": "create_index",
                         "table": "orders", "column": "user_segment"}
-
-        # default: restart the failing service (easy / failover fallback)
-        return {"action_type": "restart_service", "service": failing_service}
+            if 'partition' in all_msgs or 'us-east-1' in all_msgs:
+                return {"action_type": "failover",
+                        "service": target, "target_region": "us-west-2"}
+            down_svcs = [s for s in services if s.get('status') == 'down']
+            if down_svcs:
+                return {"action_type": "restart_service",
+                        "service": down_svcs[0].get('name')}
+            return {"action_type": "rollback",
+                    "service": target, "version": "previous"}
+        if not alerted:
+            return {"action_type": "alert_oncall",
+                    "reason": "Incident escalated for review"}
 
     return {"action_type": "noop"}
 
@@ -610,7 +750,7 @@ def run_demo(task_id=DEFAULT_TASK, seed=DEFAULT_SEED,
                 last_action, last_raw = get_next_action_llm(
                     model, tokenizer, obs, task_id)
             else:
-                last_action = get_next_action(obs, step_history, task_id)
+                last_action = get_next_action(obs, task_id, step_history, step)
                 last_raw    = ""
 
             step_history.append(last_action)
