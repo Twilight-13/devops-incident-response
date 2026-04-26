@@ -467,7 +467,7 @@ async def live_dashboard():
 <div id="bottom-bar">
   <div class="ws-status mono">
     <div class="status-dot dot-grey" id="btm-dot"></div>
-    <span id="btm-text" style="color: var(--text-dim)">○ WS DISCONNECTED</span>
+    <span id="btm-text" style="color: var(--text-dim)">○ API DISCONNECTED</span>
   </div>
   <div class="tip-text" id="tip-text">ⓘ Agents must read_logs before acting — blind remediation triggers -0.10 penalty</div>
   <div class="footer-right mono">ARIA v2.0 · OpenEnv Compliant &nbsp;&nbsp; 🤗 Arijit-07</div>
@@ -608,7 +608,11 @@ async def live_dashboard():
 
   function handleState(state) {{
     if (!state.episode_id) return;
-    
+
+    // API returns current_observation not observation
+    const obs = state.current_observation || state.observation;
+    const maxSteps = (obs && obs.max_steps) || 15;
+
     if (state.episode_id !== currentEpisodeId) {{
       currentEpisodeId = state.episode_id;
       lastStep = -1;
@@ -624,57 +628,55 @@ async def live_dashboard():
       for (let i = Math.max(0, lastStep); i < state.action_history.length; i++) {{
         const hist = state.action_history[i];
         const act = hist.action;
-        
+
         if(act.action_type === 'diagnose') addLog('DIAGNOSE', act.root_cause);
-        else if(act.action_type === 'restart_service' || act.action_type === 'rollback_service' || act.action_type === 'block_ip') 
-          addLog('FIX', act.action_type, act.service || act.ip);
+        else if(act.action_type === 'restart_service' || act.action_type === 'rollback' || act.action_type === 'block_ip_range')
+          addLog('FIX', act.action_type, act.service || act.ip_range);
         else addLog('ACTION', act);
-        
+
         if(hist.reward !== undefined) {{
           rewardHistory.push(hist.reward);
           addLog('REWARD', hist.reward);
         }}
       }}
-      
+
       lastStep = state.step;
       totalScore = state.total_reward;
-      
-      document.getElementById('top-step').textContent = `${{state.step.toString().padStart(2,'0')}} / 15`;
-      document.getElementById('stat-step').textContent = `STEP ${{state.step}}/15`;
+
+      document.getElementById('top-step').textContent = `${{state.step.toString().padStart(2,'0')}} / ${{maxSteps}}`;
+      document.getElementById('stat-step').textContent = `STEP ${{state.step}}/${{maxSteps}}`;
       updateScoreDisplay();
       updateSparkline();
-      
-      if (state.done || state.incident_resolved) {{
+
+      if (state.incident_resolved) {{
         addLog('EPISODE_END', state.total_reward, state.step);
-        // Ensure we don't duplicate end logs
         lastStep = 99999;
       }}
     }}
 
-    if (state.observation) {{
-      const obs = state.observation;
-      if (obs.services) {{
-        const svcs = Object.entries(obs.services).map(([name, s]) => ({{name, ...s}}));
-        svcs.sort((a, b) => {{
+    if (obs) {{
+      if (obs.services && obs.services.length > 0) {{
+        // services is a JSON array — sort in place
+        const svcs = obs.services.slice().sort((a, b) => {{
           const val = (st) => st === 'down' ? 0 : (st === 'degraded' ? 1 : 2);
           return val(a.status) - val(b.status);
         }});
-        
+
         const list = document.getElementById('service-list');
         list.innerHTML = '';
         document.getElementById('svc-count').textContent = svcs.length;
-        
+
         svcs.forEach(s => {{
           let bcol = 'var(--border)', bgcol = 'var(--surface)', tcol = 'var(--text-dim)', stxt = '○ UNKNOWN';
           if(s.status === 'down') {{ bcol = 'var(--red)'; bgcol = 'var(--red-dim)'; tcol = 'var(--red)'; stxt = '● DOWN'; }}
           else if(s.status === 'degraded') {{ bcol = 'var(--yellow)'; bgcol = 'var(--yellow-dim)'; tcol = 'var(--yellow)'; stxt = '◐ DEGRADED'; }}
           else if(s.status === 'healthy') {{ bcol = 'var(--green)'; bgcol = 'var(--green-dim)'; tcol = 'var(--green)'; stxt = '○ HEALTHY'; }}
-          
+
           let errRate = (s.error_rate * 100).toFixed(1);
-          let memUtil = (s.memory_utilization * 100).toFixed(1);
+          let memPct = (s.memory_percent || 0).toFixed(1);
           let errCol = s.error_rate > 0.3 ? 'var(--red)' : (s.error_rate > 0.1 ? 'var(--yellow)' : 'var(--green)');
-          let memCol = s.memory_utilization > 0.9 ? 'var(--red)' : (s.memory_utilization > 0.7 ? 'var(--yellow)' : 'var(--green)');
-          
+          let memCol = (s.memory_percent || 0) > 90 ? 'var(--red)' : ((s.memory_percent || 0) > 70 ? 'var(--yellow)' : 'var(--green)');
+
           list.innerHTML += `
             <div class="service-item mono" style="border-left: 3px solid ${{bcol}}; background: ${{bgcol}}">
               <div>
@@ -683,33 +685,34 @@ async def live_dashboard():
               </div>
               <div class="svc-stats">
                 <div class="svc-stat-line" style="color:${{errCol}}">ERR ${{errRate}}%</div>
-                <div class="svc-stat-line" style="color:${{memCol}}">MEM ${{memUtil}}%</div>
+                <div class="svc-stat-line" style="color:${{memCol}}">MEM ${{memPct}}%</div>
               </div>
             </div>
           `;
         }});
       }}
-      
+
       if (obs.active_alerts) {{
         const alist = document.getElementById('alerts-list');
         alist.innerHTML = '';
         document.getElementById('alert-count').textContent = obs.active_alerts.length;
         document.getElementById('alert-count').style.background = obs.active_alerts.length > 0 ? 'var(--red)' : 'var(--surface2)';
-        
+
         if(obs.active_alerts.length === 0) {{
           alist.innerHTML = '<div class="no-alerts mono">◎ ALL SYSTEMS NOMINAL</div>';
         }} else {{
           let critFound = false;
           obs.active_alerts.slice(0, 5).forEach(a => {{
             let bg = 'var(--surface)', border = 'var(--border)', txtCol = '#000';
-            if(a.severity === 'CRITICAL') {{ border = 'var(--red)'; bg = 'var(--red)'; critFound = true; }}
-            else if(a.severity === 'HIGH') {{ border = '#ff6600'; bg = '#ff6600'; }}
-            else if(a.severity === 'WARNING') {{ border = 'var(--yellow)'; bg = 'var(--yellow)'; }}
-            else {{ border = 'var(--blue)'; bg = 'var(--blue)'; }}
-            
+            // Alert severity is lowercase: "critical", "warning", "info"
+            if(a.severity === 'critical') {{ border = 'var(--red)'; bg = 'var(--red)'; critFound = true; }}
+            else if(a.severity === 'high') {{ border = '#ff6600'; bg = '#ff6600'; }}
+            else if(a.severity === 'warning') {{ border = 'var(--yellow)'; bg = 'var(--yellow)'; }}
+            else {{ border = 'var(--blue)'; bg = 'var(--blue)'; txtCol = '#fff'; }}
+
             alist.innerHTML += `
               <div class="alert-strip mono" style="border-left: 3px solid ${{border}}; background: ${{bg}}20">
-                <div class="alert-badge" style="background:${{bg}}; color:${{txtCol}}">${{a.severity}}</div>
+                <div class="alert-badge" style="background:${{bg}}; color:${{txtCol}}">${{a.severity.toUpperCase()}}</div>
                 <div class="alert-text">[${{a.service}}] ${{a.message}}</div>
               </div>
             `;
