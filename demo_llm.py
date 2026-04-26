@@ -55,6 +55,8 @@ console = Console(
 
 def load_model():
     console.print("[cyan]Loading ARIA fine-tuned model...[/cyan]")
+    token = HF_TOKEN if HF_TOKEN else None
+
     try:
         from unsloth import FastLanguageModel
         import torch
@@ -63,23 +65,26 @@ def load_model():
             model_name=MODEL_REPO,
             max_seq_length=2048,
             load_in_4bit=True,
-            token=HF_TOKEN,
+            token=token,
         )
         FastLanguageModel.for_inference(model)
         console.print(f"[green]✓ Model loaded via Unsloth: {MODEL_REPO}[/green]")
     except ModuleNotFoundError:
-        console.print("[yellow]! Unsloth not found. Falling back to standard transformers...[/yellow]")
+        console.print("[yellow]! Unsloth not found. Falling back to standard transformers + PEFT...[/yellow]")
         from transformers import AutoModelForCausalLM, AutoTokenizer
+        from peft import PeftModel
         import torch
 
-        tokenizer = AutoTokenizer.from_pretrained(MODEL_REPO, token=HF_TOKEN)
-        model = AutoModelForCausalLM.from_pretrained(
-            MODEL_REPO,
-            token=HF_TOKEN,
+        BASE_MODEL = "unsloth/Meta-Llama-3.1-8B-Instruct"
+        tokenizer = AutoTokenizer.from_pretrained(MODEL_REPO, token=token)
+        base_model = AutoModelForCausalLM.from_pretrained(
+            BASE_MODEL,
+            token=token,
             device_map="auto",
             torch_dtype=torch.float16,
         )
-        console.print(f"[green]✓ Model loaded via Transformers: {MODEL_REPO}[/green]")
+        model = PeftModel.from_pretrained(base_model, MODEL_REPO, token=token)
+        console.print(f"[green]✓ Model loaded via Transformers + PEFT: {MODEL_REPO}[/green]")
         
     return model, tokenizer
 
