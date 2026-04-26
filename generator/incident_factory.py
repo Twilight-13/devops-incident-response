@@ -1,7 +1,7 @@
 import random
 
 class IncidentFactory:
-    FAILURE_MODES = ["oom", "cascade", "corruption", "security", "database", "network_partition"]
+    FAILURE_MODES = ["oom", "cascade", "corruption", "security", "database", "network_partition", "network_latency", "config_drift"]
     SERVICES = ["payment-service", "order-service", "user-service", 
                 "inventory-service", "api-gateway", "notification-service", 
                 "data-pipeline", "ml-inference-service"]
@@ -13,6 +13,15 @@ class IncidentFactory:
         "CDN cache warming after deployment",
         "Routine health check latency spike"
     ]
+    NOISE_ALERTS_NETWORK_LATENCY = [
+        "INFO: Scheduled maintenance window active — some latency variation expected",
+        "CDN edge node rotation in progress",
+        "Routine health check latency spike",
+    ]
+    NOISE_ALERTS_CONFIG_DRIFT = [
+        "WARNING: data-pipeline memory usage elevated (85%) — not yet critical",
+        "INFO: Scheduled batch job running — high CPU expected",
+    ]
 
     def generate(self, seed: int) -> dict:
         rng = random.Random(seed)
@@ -20,7 +29,15 @@ class IncidentFactory:
         affected_service = rng.choice(self.SERVICES)
         severity = rng.choice(self.SEVERITIES)
         noise_count = rng.randint(0, 3)
-        noise_alerts = rng.sample(self.NOISE_ALERTS, min(noise_count, len(self.NOISE_ALERTS)))
+        if failure_mode == "network_latency":
+            noise_pool = self.NOISE_ALERTS_NETWORK_LATENCY
+            noise_count = min(noise_count + 1, len(noise_pool))
+        elif failure_mode == "config_drift":
+            noise_pool = self.NOISE_ALERTS_CONFIG_DRIFT
+            noise_count = min(noise_count + 1, len(noise_pool))
+        else:
+            noise_pool = self.NOISE_ALERTS
+        noise_alerts = rng.sample(noise_pool, min(noise_count, len(noise_pool)))
 
         # Templates for description
         descriptions = {
@@ -29,7 +46,9 @@ class IncidentFactory:
             "corruption": f"Silent data corruption in {affected_service}. Invalid records being written. No error-rate alerts — signal buried in business metrics.",
             "security": f"Credential stuffing botnet targeting {affected_service} from IP range 185.220.x.x.",
             "database": f"Missing index on {affected_service} database after migration. Full table scans degrading all queries.",
-            "network_partition": f"Network partition isolating {affected_service} in us-east-1. Failover decision required."
+            "network_partition": f"Network partition isolating {affected_service} in us-east-1. Failover decision required.",
+            "network_latency": f"Gradual latency degradation in {affected_service}. All services remain running but P99 latency is 10–50x normal. No crashes, no OOM — signal is purely in latency metrics.",
+            "config_drift": f"{affected_service} deployed with incorrect environment variables. Service appears healthy — error rate is low — but outputs are wrong. Signal buried in CONFIG_ERROR log warnings and downstream data validation failures.",
         }
         description = descriptions[failure_mode]
 
@@ -40,7 +59,9 @@ class IncidentFactory:
             "corruption": f"Data corruption in {affected_service} writing invalid records",
             "security": f"DDoS credential stuffing from 185.220.0.0/16 targeting {affected_service}",
             "database": f"Missing index causing sequential scans on {affected_service}",
-            "network_partition": f"Network partition in us-east-1 affecting {affected_service}"
+            "network_partition": f"Network partition in us-east-1 affecting {affected_service}",
+            "network_latency": f"Network latency degradation in {affected_service}",
+            "config_drift": f"Config drift in {affected_service} writing incorrect output",
         }
         ground_truth_root_cause = root_causes[failure_mode]
 
@@ -51,14 +72,17 @@ class IncidentFactory:
             "corruption": "rollback",
             "security": "block_ip_range",
             "database": "create_index",
-            "network_partition": "failover"
+            "network_partition": "failover",
+            "network_latency": "rollback",
+            "config_drift": "rollback",
         }
         ground_truth_fix = fixes[failure_mode]
 
         # Difficulty score
         base_scores = {
             "oom": 0.2, "cascade": 0.5, "corruption": 0.8,
-            "security": 0.6, "database": 0.6, "network_partition": 0.7
+            "security": 0.6, "database": 0.6, "network_partition": 0.7,
+            "network_latency": 0.55, "config_drift": 0.75,
         }
         score = base_scores[failure_mode] + (noise_count * 0.05)
         score = min(score, 1.0)

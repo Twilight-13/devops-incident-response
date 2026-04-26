@@ -20,6 +20,10 @@ multi_agent_sessions: dict = {}
 
 episode_history = deque(maxlen=1000)
 
+replay_store: dict = {}
+replay_counter: int = 0
+current_episode_steps: list = []
+
 def track_episode(state_obj: State):
     from graders.grader import grade_episode
     score = grade_episode(
@@ -1436,6 +1440,7 @@ async def reset(req: Optional[ResetRequest] = None):
             status_code=400,
             detail=f"task_id must be one of {VALID_TASKS} or 'generated'. Got: {req.task_id}",
         )
+    current_episode_steps.clear()
     return await _env.reset(seed=req.seed, task_id=req.task_id)
 
 
@@ -1469,11 +1474,41 @@ async def step(action: Action):
     Side effects:
         On done=True, records the episode in the leaderboard and metrics history.
     """
+    global replay_counter
     if _env._logic is None:
         raise HTTPException(status_code=400, detail="Call /reset before /step")
     res = await _env.step(action)
+
+    step_data = {
+        "step": len(current_episode_steps),
+        "action": action.dict(),
+        "reward": res.reward,
+        "observation_summary": {
+            "failing_services": [s.name for s in res.observation.services if s.status in ("down", "degraded")],
+            "alert_count": len(res.observation.active_alerts),
+            "evidence_count": len(res.observation.evidence_log),
+        },
+    }
+    current_episode_steps.append(step_data)
+
     if res.done:
         track_episode(_env.state)
+        state = _env.state
+        replay_store[str(replay_counter)] = {
+            "episode_id": str(replay_counter),
+            "task_id": state.task_id,
+            "seed": state.info.get("seed", 0),
+            "final_score": round(state.total_reward, 3),
+            "resolved": state.incident_resolved,
+            "total_steps": state.step,
+            "timestamp": datetime.utcnow().isoformat(),
+            "steps": list(current_episode_steps),
+        }
+        replay_counter += 1
+        if len(replay_store) > 20:
+            oldest = min(replay_store.keys(), key=int)
+            del replay_store[oldest]
+
     return res
 
 
@@ -2048,3 +2083,706 @@ def get_curriculum_hint(task_id: str):
         }
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+
+
+# ─── Feature 1: Episode Replay System ────────────────────────────────────────
+
+@app.get("/replays")
+def list_replays():
+    """List available episode replays, newest first."""
+    items = []
+    for ep_id, r in replay_store.items():
+        items.append({
+            "episode_id": r["episode_id"],
+            "task_id": r["task_id"],
+            "score": r["final_score"],
+            "resolved": r["resolved"],
+            "total_steps": r["total_steps"],
+            "timestamp": r["timestamp"],
+        })
+    items.sort(key=lambda x: int(x["episode_id"]), reverse=True)
+    return items
+
+
+@app.get("/replay/{episode_id}")
+def get_replay(episode_id: str):
+    """Return full replay data for an episode."""
+    if episode_id not in replay_store:
+        raise HTTPException(status_code=404, detail="Episode not found")
+    return replay_store[episode_id]
+
+
+@app.get("/replay/{episode_id}/html", response_class=HTMLResponse)
+def get_replay_html(episode_id: str):
+    """Return an HTML timeline visualization of an episode replay."""
+    if episode_id not in replay_store:
+        raise HTTPException(status_code=404, detail="Episode not found")
+    r = replay_store[episode_id]
+
+    def reward_color(reward: float) -> str:
+        if reward > 0.2:
+            return "#00ff88"
+        if reward > 0:
+            return "#ffaa00"
+        if reward == 0:
+            return "#ff3355"
+        return "#ff3355"
+
+    def reward_bg(reward: float) -> str:
+        if reward > 0.2:
+            return "rgba(0,255,136,0.08)"
+        if reward > 0:
+            return "rgba(255,170,0,0.08)"
+        return "rgba(255,51,85,0.08)"
+
+    steps_html = ""
+    running_score = 0.0
+    for s in r["steps"]:
+        running_score += s["reward"]
+        act = s["action"]
+        act_type = act.get("action_type", "unknown")
+        service = act.get("service") or ""
+        rc = act.get("root_cause") or ""
+        obs = s["observation_summary"]
+        col = reward_color(s["reward"])
+        bg = reward_bg(s["reward"])
+        reward_sign = "+" if s["reward"] > 0 else ""
+        failing = ", ".join(obs["failing_services"]) if obs["failing_services"] else "none"
+        steps_html += f"""
+        <div class="step-card" style="border-left-color:{col}; background:{bg}">
+          <div class="step-header">
+            <span class="step-num mono">STEP {s['step'] + 1}</span>
+            <span class="step-action mono">{act_type} {service}</span>
+            <span class="step-reward mono" style="color:{col}">{reward_sign}{s['reward']:.3f}</span>
+            <span class="step-running mono" style="color:#4d9fff">&sum; {running_score:.3f}</span>
+          </div>
+          {"<div class='step-rc'>&rarr; " + rc + "</div>" if rc and act_type == "diagnose" else ""}
+          <div class="step-obs mono">
+            failing: {failing} &nbsp;|&nbsp;
+            alerts: {obs['alert_count']} &nbsp;|&nbsp;
+            evidence: {obs['evidence_count']}
+          </div>
+        </div>"""
+
+    resolved_color = "#00ff88" if r["resolved"] else "#ff3355"
+    resolved_text = "INCIDENT RESOLVED" if r["resolved"] else "INCIDENT ESCALATED"
+    resolved_icon = "&#10003;" if r["resolved"] else "&#10007;"
+    score_col = "#00ff88" if r["final_score"] >= 0.7 else "#ffaa00" if r["final_score"] >= 0.4 else "#ff3355"
+
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>ARIA Replay #{episode_id}</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+  :root {{--bg:#060914;--surface:#0a0f1e;--surface2:#0d1628;--border:#1a2744;--blue:#4d9fff;--cyan:#00d4ff;--green:#00ff88;--yellow:#ffaa00;--red:#ff3355;--text:#c8d8f0;--text-dim:#4a6080;}}
+  *{{box-sizing:border-box;margin:0;padding:0;}}
+  body{{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;padding:24px;max-width:900px;margin:0 auto;}}
+  .mono{{font-family:'Share Tech Mono',monospace;}}
+  .header{{background:var(--surface);border:1px solid var(--border);padding:24px;margin-bottom:24px;}}
+  .header-title{{font-size:22px;color:var(--blue);font-weight:700;margin-bottom:8px;}}
+  .header-meta{{display:flex;gap:24px;flex-wrap:wrap;}}
+  .meta-item{{font-size:13px;color:var(--text-dim);}}
+  .meta-value{{color:var(--text);font-weight:600;}}
+  .step-card{{border-left:3px solid;padding:12px 16px;margin-bottom:8px;border-radius:0 4px 4px 0;}}
+  .step-header{{display:flex;align-items:center;gap:16px;flex-wrap:wrap;margin-bottom:4px;}}
+  .step-num{{font-size:11px;color:var(--text-dim);min-width:60px;}}
+  .step-action{{font-size:13px;color:var(--cyan);flex:1;}}
+  .step-reward{{font-size:14px;font-weight:700;}}
+  .step-running{{font-size:11px;}}
+  .step-rc{{font-size:12px;color:var(--yellow);padding:4px 0;}}
+  .step-obs{{font-size:11px;color:var(--text-dim);margin-top:4px;}}
+  .resolution-banner{{text-align:center;padding:32px;margin-top:24px;border:2px solid;font-size:24px;font-weight:700;}}
+  .nav-links{{display:flex;gap:16px;margin-bottom:24px;font-size:13px;}}
+  .nav-links a{{color:var(--blue);text-decoration:none;}}
+  .nav-links a:hover{{color:var(--cyan);}}
+  h2{{font-size:14px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:16px;}}
+</style>
+</head>
+<body>
+<div class="nav-links">
+  <a href="/replays/html">&larr; All Replays</a>
+  <a href="/live">Live NOC</a>
+  <a href="/progress">Progress</a>
+  <a href="/docs">API Docs</a>
+</div>
+<div class="header">
+  <div class="header-title">&#9635; Episode Replay #{episode_id}</div>
+  <div class="header-meta">
+    <div class="meta-item">TASK <span class="meta-value mono">{r['task_id'].upper()}</span></div>
+    <div class="meta-item">SEED <span class="meta-value mono">{r['seed']}</span></div>
+    <div class="meta-item">SCORE <span class="meta-value mono" style="color:{score_col}">{r['final_score']:.3f}</span></div>
+    <div class="meta-item">STEPS <span class="meta-value mono">{r['total_steps']}</span></div>
+    <div class="meta-item">TIME <span class="meta-value mono">{r['timestamp'][:19]}</span></div>
+  </div>
+</div>
+<h2>Step Timeline</h2>
+{steps_html if steps_html else '<div style="color:var(--text-dim);padding:24px">No steps recorded.</div>'}
+<div class="resolution-banner mono" style="color:{resolved_color};border-color:{resolved_color};background:{'rgba(0,255,136,0.05)' if r['resolved'] else 'rgba(255,51,85,0.05)'}">
+  {resolved_icon} {resolved_text} &nbsp;|&nbsp; Final Score: {r['final_score']:.3f}
+</div>
+</body>
+</html>"""
+    return HTMLResponse(html)
+
+
+@app.get("/replays/html", response_class=HTMLResponse)
+def list_replays_html():
+    """HTML index of all replays."""
+    items = sorted(replay_store.values(), key=lambda x: int(x["episode_id"]), reverse=True)
+    rows = ""
+    for r in items:
+        score_col = "#00ff88" if r["final_score"] >= 0.7 else "#ffaa00" if r["final_score"] >= 0.4 else "#ff3355"
+        resolved_icon = "&#10003;" if r["resolved"] else "&#10007;"
+        rows += f"""<tr>
+          <td class="mono"><a href="/replay/{r['episode_id']}/html" style="color:#4d9fff">#{r['episode_id']}</a></td>
+          <td class="mono">{r['task_id'].upper()}</td>
+          <td class="mono" style="color:{score_col}">{r['final_score']:.3f}</td>
+          <td class="mono" style="color:{'#00ff88' if r['resolved'] else '#ff3355'}">{resolved_icon}</td>
+          <td class="mono">{r['total_steps']}</td>
+          <td class="mono" style="color:#4a6080">{r['timestamp'][:19]}</td>
+        </tr>"""
+    if not rows:
+        rows = '<tr><td colspan="6" style="text-align:center;color:#4a6080;padding:32px">No replays yet. Complete an episode to generate one.</td></tr>'
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>ARIA Episode Replays</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+  :root{{--bg:#060914;--surface:#0a0f1e;--border:#1a2744;--blue:#4d9fff;--text:#c8d8f0;--text-dim:#4a6080;}}
+  *{{box-sizing:border-box;margin:0;padding:0;}}
+  body{{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;padding:32px;max-width:900px;margin:0 auto;}}
+  .mono{{font-family:'Share Tech Mono',monospace;}}
+  h1{{font-size:22px;color:var(--blue);margin-bottom:24px;}}
+  table{{width:100%;border-collapse:collapse;}}
+  th{{text-align:left;font-size:11px;color:var(--text-dim);text-transform:uppercase;padding:8px 12px;border-bottom:1px solid var(--border);}}
+  td{{padding:10px 12px;border-bottom:1px solid rgba(26,39,68,0.5);font-size:13px;}}
+  tr:hover td{{background:rgba(77,159,255,0.04);}}
+  .nav-links{{display:flex;gap:16px;margin-bottom:24px;font-size:13px;}}
+  .nav-links a{{color:var(--blue);text-decoration:none;}}
+</style>
+</head>
+<body>
+<div class="nav-links"><a href="/live">Live NOC</a><a href="/progress">Progress</a><a href="/challenge">Challenge</a></div>
+<h1>&#9635; Episode Replays</h1>
+<table>
+  <thead><tr><th>ID</th><th>Task</th><th>Score</th><th>Resolved</th><th>Steps</th><th>Time</th></tr></thead>
+  <tbody>{rows}</tbody>
+</table>
+</body>
+</html>"""
+    return HTMLResponse(html)
+
+
+# ─── Feature 2: Human vs Agent Challenge ─────────────────────────────────────
+
+@app.get("/challenge", response_class=HTMLResponse)
+async def challenge_page():
+    """Human-playable incident response challenge."""
+    html = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>ARIA Human Challenge</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+  :root {
+    --bg:#060914;--surface:#0a0f1e;--surface2:#0d1628;--border:#1a2744;
+    --border-bright:#2a4080;--blue:#4d9fff;--cyan:#00d4ff;--green:#00ff88;
+    --yellow:#ffaa00;--red:#ff3355;--purple:#9d4edd;--text:#c8d8f0;--text-dim:#4a6080;
+  }
+  *{box-sizing:border-box;margin:0;padding:0;}
+  body{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;min-height:100vh;}
+  .mono{font-family:'Share Tech Mono',monospace;}
+  .nav{background:#000;border-bottom:1px solid var(--border);padding:0 24px;height:48px;display:flex;align-items:center;justify-content:space-between;}
+  .nav-logo{font-size:16px;color:var(--blue);font-weight:700;}
+  .nav-links{display:flex;gap:16px;font-size:12px;}
+  .nav-links a{color:var(--text-dim);text-decoration:none;}
+  .nav-links a:hover{color:var(--blue);}
+  .warning{background:rgba(255,170,0,0.1);border-bottom:1px solid var(--yellow);padding:8px 24px;font-size:12px;color:var(--yellow);text-align:center;}
+  .main{display:grid;grid-template-columns:1fr 380px;height:calc(100vh - 80px);}
+  .left{padding:20px;overflow-y:auto;border-right:1px solid var(--border);}
+  .right{padding:20px;overflow-y:auto;background:var(--surface);}
+  .panel{background:var(--surface2);border:1px solid var(--border);padding:16px;margin-bottom:16px;}
+  .panel-title{font-size:10px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:12px;}
+  table{width:100%;border-collapse:collapse;font-size:12px;}
+  th{text-align:left;color:var(--text-dim);font-size:10px;text-transform:uppercase;padding:4px 8px;border-bottom:1px solid var(--border);}
+  td{padding:6px 8px;font-family:'Share Tech Mono',monospace;font-size:12px;border-bottom:1px solid rgba(26,39,68,0.5);}
+  .status-down{color:var(--red);}
+  .status-degraded{color:var(--yellow);}
+  .status-healthy{color:var(--green);}
+  .alert-item{padding:6px 10px;border-left:3px solid;margin-bottom:6px;font-size:12px;}
+  .sev-critical{border-color:var(--red);background:rgba(255,51,85,0.08);}
+  .sev-high{border-color:#ff6600;background:rgba(255,102,0,0.08);}
+  .sev-warning{border-color:var(--yellow);background:rgba(255,170,0,0.08);}
+  .sev-info{border-color:var(--blue);background:rgba(77,159,255,0.08);}
+  .evidence-item{font-size:11px;color:var(--text-dim);padding:4px 0;border-bottom:1px solid rgba(26,39,68,0.3);}
+  .form-row{margin-bottom:12px;}
+  label{display:block;font-size:11px;color:var(--text-dim);text-transform:uppercase;margin-bottom:4px;}
+  select,input[type=text]{width:100%;background:var(--surface);border:1px solid var(--border-bright);color:var(--text);font-family:'Share Tech Mono',monospace;font-size:13px;padding:8px 10px;outline:none;}
+  select:focus,input[type=text]:focus{border-color:var(--blue);}
+  .btn-action{width:100%;background:rgba(77,159,255,0.15);border:1px solid var(--blue);color:var(--blue);font-family:'Share Tech Mono',monospace;font-size:14px;padding:12px;cursor:pointer;transition:0.2s;margin-top:8px;text-transform:uppercase;letter-spacing:0.1em;}
+  .btn-action:hover{background:var(--blue);color:#000;}
+  .btn-action:disabled{opacity:0.4;cursor:not-allowed;}
+  .btn-reset{background:rgba(255,51,85,0.1);border:1px solid var(--red);color:var(--red);}
+  .btn-reset:hover{background:var(--red);color:#000;}
+  .score-header{display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;}
+  .big-score{font-size:36px;font-weight:700;font-family:'Share Tech Mono',monospace;}
+  .step-info{font-size:12px;color:var(--text-dim);}
+  .reward-flash{padding:8px 12px;margin-bottom:8px;font-size:14px;font-family:'Share Tech Mono',monospace;border-left:3px solid;}
+  .result-log{max-height:150px;overflow-y:auto;font-size:11px;color:var(--text-dim);font-family:'Share Tech Mono',monospace;background:var(--surface);padding:8px;margin-top:8px;white-space:pre-wrap;}
+  .comparison{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px;}
+  .cmp-card{background:var(--surface2);border:1px solid var(--border);padding:20px;text-align:center;}
+  .cmp-label{font-size:11px;color:var(--text-dim);text-transform:uppercase;margin-bottom:8px;}
+  .cmp-score{font-size:32px;font-weight:700;font-family:'Share Tech Mono',monospace;}
+  .cmp-steps{font-size:12px;color:var(--text-dim);margin-top:4px;}
+  .done-banner{text-align:center;padding:24px;border:2px solid;font-size:20px;font-weight:700;margin-bottom:16px;}
+  ::-webkit-scrollbar{width:4px;}::-webkit-scrollbar-thumb{background:var(--border-bright);}
+</style>
+</head>
+<body>
+<div class="nav">
+  <div class="nav-logo mono">&#9635; ARIA HUMAN CHALLENGE</div>
+  <div class="nav-links">
+    <a href="/live">Live NOC</a>
+    <a href="/progress">Progress</a>
+    <a href="/replays/html">Replays</a>
+    <a href="/docs">API</a>
+  </div>
+</div>
+<div class="warning">&#9888; Note: This resets the shared environment &mdash; agent runs will be interrupted while you play</div>
+<div class="main">
+  <div class="left">
+    <div class="panel" id="task-desc-panel" style="display:none">
+      <div class="panel-title">&#9658; Task Description</div>
+      <div id="task-desc" style="font-size:13px;color:#8ab4d4"></div>
+    </div>
+    <div class="panel">
+      <div class="panel-title">&#9658; Infrastructure Status</div>
+      <table>
+        <thead><tr><th>Service</th><th>Status</th><th>CPU%</th><th>Mem%</th><th>Err/s</th><th>P99ms</th></tr></thead>
+        <tbody id="svc-tbody"><tr><td colspan="6" style="color:var(--text-dim);padding:16px">Loading...</td></tr></tbody>
+      </table>
+    </div>
+    <div class="panel">
+      <div class="panel-title">&#9658; Active Alerts <span id="alert-count" style="color:var(--red)"></span></div>
+      <div id="alerts-container"><div style="color:var(--text-dim);font-size:12px">No alerts</div></div>
+    </div>
+    <div class="panel">
+      <div class="panel-title">&#9658; Evidence Gathered <span id="evidence-count" style="color:var(--blue)"></span></div>
+      <div id="evidence-container"><div style="color:var(--text-dim);font-size:12px">No evidence yet</div></div>
+    </div>
+    <div id="done-panel" style="display:none">
+      <div class="done-banner mono" id="done-banner"></div>
+      <div class="comparison">
+        <div class="cmp-card">
+          <div class="cmp-label">Your Score</div>
+          <div class="cmp-score" id="human-score">&mdash;</div>
+          <div class="cmp-steps" id="human-steps"></div>
+        </div>
+        <div class="cmp-card">
+          <div class="cmp-label">Trained Agent (Llama-3.1-8B)</div>
+          <div class="cmp-score" id="agent-score">&mdash;</div>
+          <div class="cmp-steps">from /metrics avg</div>
+        </div>
+      </div>
+      <button class="btn-action" onclick="startGame(true)" style="margin-top:16px;width:100%">&#9654; Play Again (Random Seed)</button>
+    </div>
+  </div>
+  <div class="right">
+    <div class="score-header">
+      <div>
+        <div class="panel-title">Episode Progress</div>
+        <div class="big-score mono" id="score-display" style="color:var(--text-dim)">0.000</div>
+      </div>
+      <div style="text-align:right">
+        <div class="step-info mono" id="step-display">Step 0 / 15</div>
+        <div class="step-info mono" id="task-display" style="color:var(--blue)">EASY</div>
+      </div>
+    </div>
+    <div class="panel">
+      <div class="panel-title">&#9658; Take Action</div>
+      <div class="form-row">
+        <label>Action Type</label>
+        <select id="action-type" onchange="onActionTypeChange()">
+          <option value="read_logs">read_logs &mdash; Read full log output</option>
+          <option value="search_logs">search_logs &mdash; Search logs for keyword</option>
+          <option value="read_metrics">read_metrics &mdash; Read CPU/mem/latency</option>
+          <option value="read_runbook">read_runbook &mdash; Open a runbook</option>
+          <option value="diagnose">diagnose &mdash; Submit root cause diagnosis</option>
+          <option value="restart_service">restart_service &mdash; Restart a crashed service</option>
+          <option value="rollback">rollback &mdash; Roll back a deployment</option>
+          <option value="scale_up">scale_up &mdash; Scale up replicas</option>
+          <option value="alert_oncall">alert_oncall &mdash; Page on-call engineer</option>
+          <option value="acknowledge">acknowledge &mdash; Acknowledge an alert</option>
+          <option value="block_ip_range">block_ip_range &mdash; Block a CIDR range</option>
+          <option value="create_index">create_index &mdash; Create a DB index</option>
+          <option value="failover">failover &mdash; Regional failover</option>
+          <option value="noop">noop &mdash; No action</option>
+        </select>
+      </div>
+      <div class="form-row" id="svc-row">
+        <label>Service Name</label>
+        <input type="text" id="service-input" placeholder="e.g. payment-service">
+      </div>
+      <div class="form-row" id="rc-row" style="display:none">
+        <label>Root Cause (for diagnose)</label>
+        <input type="text" id="rc-input" placeholder="e.g. Memory leak in payment-service causing OOM">
+      </div>
+      <div class="form-row" id="query-row" style="display:none">
+        <label>Search Query</label>
+        <input type="text" id="query-input" placeholder="e.g. OOM">
+      </div>
+      <div class="form-row" id="rb-row" style="display:none">
+        <label>Runbook File</label>
+        <input type="text" id="rb-input" placeholder="e.g. memory_leak.md">
+      </div>
+      <div class="form-row" id="ip-row" style="display:none">
+        <label>IP Range</label>
+        <input type="text" id="ip-input" placeholder="e.g. 185.220.0.0/16">
+      </div>
+      <div class="form-row" id="reason-row" style="display:none">
+        <label>Reason (for alert_oncall)</label>
+        <input type="text" id="reason-input" placeholder="e.g. Data corruption detected">
+      </div>
+      <button class="btn-action" id="action-btn" onclick="takeAction()">&#9654; TAKE ACTION</button>
+      <div id="reward-flash" style="display:none" class="reward-flash"></div>
+      <div id="result-log" class="result-log" style="display:none"></div>
+    </div>
+    <div class="panel">
+      <div class="panel-title">&#9658; Reward History</div>
+      <div id="reward-history" class="mono" style="font-size:11px;max-height:120px;overflow-y:auto"></div>
+    </div>
+    <button class="btn-action btn-reset" onclick="startGame(true)" style="margin-top:8px">&#8635; New Incident (Random Seed)</button>
+  </div>
+</div>
+<script>
+  let isDone = false;
+  let currentSeed = 1234;
+  let stepCount = 0;
+  let totalScore = 0;
+  let maxSteps = 15;
+
+  async function startGame(randomSeed) {
+    currentSeed = randomSeed ? Math.floor(Math.random() * 99999) : 1234;
+    stepCount = 0; totalScore = 0; isDone = false;
+    document.getElementById('done-panel').style.display = 'none';
+    document.getElementById('reward-history').innerHTML = '';
+    document.getElementById('result-log').style.display = 'none';
+    document.getElementById('reward-flash').style.display = 'none';
+    document.getElementById('action-btn').disabled = false;
+    const res = await fetch('/reset', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({task_id: 'easy', seed: currentSeed})
+    });
+    const obs = await res.json();
+    maxSteps = obs.max_steps || 15;
+    renderObs(obs);
+    document.getElementById('step-display').textContent = 'Step 0 / ' + maxSteps;
+    document.getElementById('task-display').textContent = (obs.task_id || 'easy').toUpperCase() + ' \\u00b7 SEED ' + currentSeed;
+    if (obs.task_description) {
+      document.getElementById('task-desc').textContent = obs.task_description;
+      document.getElementById('task-desc-panel').style.display = 'block';
+    }
+    updateScoreDisplay(0);
+  }
+
+  function onActionTypeChange() {
+    const at = document.getElementById('action-type').value;
+    document.getElementById('rc-row').style.display = at === 'diagnose' ? 'block' : 'none';
+    document.getElementById('query-row').style.display = at === 'search_logs' ? 'block' : 'none';
+    document.getElementById('rb-row').style.display = at === 'read_runbook' ? 'block' : 'none';
+    document.getElementById('ip-row').style.display = at === 'block_ip_range' ? 'block' : 'none';
+    document.getElementById('reason-row').style.display = at === 'alert_oncall' ? 'block' : 'none';
+    document.getElementById('svc-row').style.display = ['read_runbook','block_ip_range','noop'].includes(at) ? 'none' : 'block';
+  }
+
+  async function takeAction() {
+    if (isDone) return;
+    const at = document.getElementById('action-type').value;
+    const svc = document.getElementById('service-input').value.trim() || null;
+    const body = {action_type: at};
+    if (svc) body.service = svc;
+    if (at === 'diagnose') body.root_cause = document.getElementById('rc-input').value.trim();
+    if (at === 'search_logs') body.query = document.getElementById('query-input').value.trim();
+    if (at === 'read_runbook') body.runbook = document.getElementById('rb-input').value.trim();
+    if (at === 'block_ip_range') body.ip_range = document.getElementById('ip-input').value.trim();
+    if (at === 'alert_oncall') body.reason = document.getElementById('reason-input').value.trim();
+    document.getElementById('action-btn').disabled = true;
+    const res = await fetch('/step', {
+      method: 'POST', headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify(body)
+    });
+    const data = await res.json();
+    document.getElementById('action-btn').disabled = isDone ? true : false;
+    const reward = data.reward || 0;
+    totalScore += reward; stepCount += 1;
+    renderObs(data.observation);
+    updateScoreDisplay(totalScore);
+    document.getElementById('step-display').textContent = 'Step ' + stepCount + ' / ' + maxSteps;
+    showReward(reward, data.observation && data.observation.last_action_result);
+    appendRewardHistory(stepCount, at, reward);
+    if (data.done) { isDone = true; document.getElementById('action-btn').disabled = true; showDonePanel(totalScore, stepCount, data.observation && data.observation.incident_resolved); }
+  }
+
+  function renderObs(obs) {
+    if (!obs) return;
+    if (obs.services) {
+      document.getElementById('svc-tbody').innerHTML = obs.services.map(s => {
+        const sc = s.status === 'down' ? 'status-down' : s.status === 'degraded' ? 'status-degraded' : 'status-healthy';
+        return '<tr><td>' + s.name + '</td><td class="' + sc + '">' + s.status.toUpperCase() + '</td><td>' + (s.cpu_percent||0).toFixed(1) + '</td><td>' + (s.memory_percent||0).toFixed(1) + '</td><td>' + (s.error_rate||0).toFixed(3) + '</td><td>' + (s.latency_p99_ms||0).toFixed(0) + '</td></tr>';
+      }).join('');
+    }
+    const ac = document.getElementById('alerts-container');
+    if (obs.active_alerts && obs.active_alerts.length > 0) {
+      document.getElementById('alert-count').textContent = '(' + obs.active_alerts.length + ')';
+      ac.innerHTML = obs.active_alerts.map(a => {
+        const sev = (a.severity||'INFO').toLowerCase();
+        const cls = sev === 'critical' ? 'sev-critical' : sev === 'high' ? 'sev-high' : sev === 'warning' ? 'sev-warning' : 'sev-info';
+        return '<div class="alert-item ' + cls + ' mono"><strong>' + a.severity + '</strong> [' + a.service + '] ' + a.message + '</div>';
+      }).join('');
+    } else { document.getElementById('alert-count').textContent = ''; ac.innerHTML = '<div style="color:var(--text-dim);font-size:12px">No active alerts</div>'; }
+    const ec = document.getElementById('evidence-container');
+    if (obs.evidence_log && obs.evidence_log.length > 0) {
+      document.getElementById('evidence-count').textContent = '(' + obs.evidence_log.length + ')';
+      ec.innerHTML = obs.evidence_log.slice(-5).map(e => '<div class="evidence-item">&#9658; [step ' + e.step + '] ' + e.source + ': ' + e.summary + '</div>').join('');
+    } else { document.getElementById('evidence-count').textContent = ''; ec.innerHTML = '<div style="color:var(--text-dim);font-size:12px">No evidence yet &mdash; use read_logs, read_metrics, or search_logs</div>'; }
+  }
+
+  function updateScoreDisplay(score) {
+    const el = document.getElementById('score-display');
+    el.textContent = score.toFixed(3);
+    el.style.color = score >= 0.7 ? 'var(--green)' : score >= 0.4 ? 'var(--yellow)' : score > 0 ? 'var(--red)' : 'var(--text-dim)';
+  }
+
+  function showReward(reward, resultText) {
+    const el = document.getElementById('reward-flash');
+    const sign = reward > 0 ? '+' : '';
+    el.style.display = 'block'; el.style.borderColor = reward > 0 ? 'var(--green)' : 'var(--red)';
+    el.style.color = reward > 0 ? 'var(--green)' : 'var(--red)';
+    el.style.background = reward > 0 ? 'rgba(0,255,136,0.08)' : 'rgba(255,51,85,0.08)';
+    el.textContent = 'Reward: ' + sign + reward.toFixed(3);
+    if (resultText) { const rl = document.getElementById('result-log'); rl.style.display = 'block'; rl.textContent = resultText.substring(0, 500); }
+  }
+
+  function appendRewardHistory(step, action, reward) {
+    const el = document.getElementById('reward-history');
+    const sign = reward > 0 ? '+' : '';
+    const col = reward > 0 ? 'var(--green)' : 'var(--red)';
+    el.innerHTML += '<div style="color:' + col + '">S' + step + ' ' + action + ' &rarr; ' + sign + reward.toFixed(3) + '</div>';
+    el.scrollTop = el.scrollHeight;
+  }
+
+  async function showDonePanel(score, steps, resolved) {
+    const banner = document.getElementById('done-banner');
+    banner.style.color = resolved ? 'var(--green)' : 'var(--red)';
+    banner.style.borderColor = resolved ? 'var(--green)' : 'var(--red)';
+    banner.style.background = resolved ? 'rgba(0,255,136,0.05)' : 'rgba(255,51,85,0.05)';
+    banner.textContent = (resolved ? '\\u2713 INCIDENT RESOLVED' : '\\u2717 INCIDENT ESCALATED') + ' \\u2014 Score: ' + score.toFixed(3);
+    document.getElementById('human-score').textContent = score.toFixed(3);
+    document.getElementById('human-score').style.color = score >= 0.7 ? 'var(--green)' : score >= 0.4 ? 'var(--yellow)' : 'var(--red)';
+    document.getElementById('human-steps').textContent = steps + ' steps taken';
+    try {
+      const m = await fetch('/metrics'); const mdata = await m.json();
+      const easyData = mdata.by_task && mdata.by_task['easy'];
+      if (easyData) { document.getElementById('agent-score').textContent = easyData.avg_score.toFixed(3); document.getElementById('agent-score').style.color = easyData.avg_score >= 0.7 ? 'var(--green)' : easyData.avg_score >= 0.4 ? 'var(--yellow)' : 'var(--red)'; }
+      else { document.getElementById('agent-score').textContent = 'N/A'; }
+    } catch(e) { document.getElementById('agent-score').textContent = 'N/A'; }
+    document.getElementById('done-panel').style.display = 'block';
+  }
+
+  startGame(false);
+</script>
+</body>
+</html>"""
+    return HTMLResponse(html)
+
+
+# ─── Feature 3: Progress Visualization ───────────────────────────────────────
+
+@app.get("/progress", response_class=HTMLResponse)
+def progress_page():
+    """Training progress and live performance visualization."""
+    metrics = get_metrics()
+    by_task = metrics.get("by_task", {})
+
+    BASELINES = {
+        "easy": 0.05, "medium": 0.03, "hard": 0.01,
+        "bonus": 0.01, "security": 0.01, "database": 0.01, "failover": 0.01,
+    }
+    TRAINING_RESULTS = [
+        ("easy",   0.320, 0.685),
+        ("medium", 0.050, 0.378),
+        ("hard",   0.190, 0.869),
+        ("bonus",  0.152, 0.682),
+    ]
+    ALL_TASKS = ["easy", "medium", "hard", "bonus", "security", "database", "failover"]
+
+    def bar_row(task: str, score: float, baseline: float) -> str:
+        pct = round(score * 100, 1)
+        bpct = round(baseline * 100, 1)
+        col = "#00ff88" if score >= 0.7 else "#ffaa00" if score >= 0.4 else "#ff3355"
+        return f"""
+        <div class="bar-group">
+          <div class="bar-label mono">{task.upper()}</div>
+          <div class="bar-tracks">
+            <div class="bar-track">
+              <span class="bar-tag">RANDOM</span>
+              <div class="bar-bg"><div class="bar-fill" style="width:{bpct}%;background:#4a6080"></div></div>
+              <span class="bar-val mono" style="color:#4a6080">{baseline:.3f}</span>
+            </div>
+            <div class="bar-track">
+              <span class="bar-tag">ARIA</span>
+              <div class="bar-bg"><div class="bar-fill" style="width:{pct}%;background:{col}"></div></div>
+              <span class="bar-val mono" style="color:{col}">{score:.3f}</span>
+            </div>
+          </div>
+        </div>"""
+
+    bars = "".join(
+        bar_row(task, by_task.get(task, {}).get("avg_score", 0.0), BASELINES.get(task, 0.01))
+        for task in ALL_TASKS
+    )
+
+    training_rows = "".join(
+        f"""<tr>
+          <td class="mono">{task.upper()}</td>
+          <td class="mono" style="color:#4a6080">{base:.3f}</td>
+          <td class="mono" style="color:#4d9fff">{finetuned:.3f}</td>
+          <td class="mono" style="color:#00ff88">+{finetuned - base:.3f} &#10003;</td>
+        </tr>"""
+        for task, base, finetuned in TRAINING_RESULTS
+    )
+
+    recent = list(episode_history)[-20:] if episode_history else []
+    recent_scores_js = str([round(r["final_score"], 3) for r in recent])
+    total_eps = metrics.get("total_episodes", 0)
+    overall = metrics.get("overall_avg_score", 0.0)
+    overall_col = "#00ff88" if overall >= 0.7 else "#ffaa00" if overall >= 0.4 else "#4d9fff"
+
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>ARIA Progress</title>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+  :root{{--bg:#060914;--surface:#0a0f1e;--surface2:#0d1628;--border:#1a2744;--blue:#4d9fff;--cyan:#00d4ff;--green:#00ff88;--yellow:#ffaa00;--red:#ff3355;--text:#c8d8f0;--text-dim:#4a6080;}}
+  *{{box-sizing:border-box;margin:0;padding:0;}}
+  body{{background:var(--bg);color:var(--text);font-family:'Inter',sans-serif;}}
+  .mono{{font-family:'Share Tech Mono',monospace;}}
+  .nav{{background:#000;border-bottom:1px solid var(--border);padding:0 32px;height:48px;display:flex;align-items:center;justify-content:space-between;}}
+  .nav-logo{{font-size:16px;color:var(--blue);font-weight:700;}}
+  .nav-links{{display:flex;gap:16px;font-size:12px;}}
+  .nav-links a{{color:var(--text-dim);text-decoration:none;}}
+  .nav-links a:hover{{color:var(--blue);}}
+  .page{{max-width:960px;margin:0 auto;padding:32px;}}
+  h1{{font-size:22px;color:var(--blue);margin-bottom:8px;}}
+  .subtitle{{font-size:13px;color:var(--text-dim);margin-bottom:40px;}}
+  h2{{font-size:13px;color:var(--text-dim);text-transform:uppercase;letter-spacing:0.1em;margin-bottom:20px;padding-bottom:8px;border-bottom:1px solid var(--border);}}
+  section{{margin-bottom:48px;}}
+  .stats-row{{display:flex;gap:24px;margin-bottom:32px;flex-wrap:wrap;}}
+  .stat-card{{background:var(--surface);border:1px solid var(--border);padding:20px 24px;flex:1;min-width:140px;}}
+  .stat-label{{font-size:10px;color:var(--text-dim);text-transform:uppercase;margin-bottom:6px;}}
+  .stat-value{{font-size:28px;font-weight:700;font-family:'Share Tech Mono',monospace;}}
+  .bar-group{{margin-bottom:20px;}}
+  .bar-label{{font-size:11px;color:var(--text-dim);text-transform:uppercase;margin-bottom:8px;letter-spacing:0.08em;}}
+  .bar-tracks{{display:flex;flex-direction:column;gap:6px;}}
+  .bar-track{{display:flex;align-items:center;gap:10px;}}
+  .bar-tag{{font-size:9px;color:var(--text-dim);width:50px;text-align:right;font-family:'Share Tech Mono',monospace;}}
+  .bar-bg{{flex:1;height:12px;background:var(--surface);border:1px solid var(--border);overflow:hidden;}}
+  .bar-fill{{height:100%;transition:width 0.6s ease;}}
+  .bar-val{{font-size:12px;width:50px;text-align:right;}}
+  table{{width:100%;border-collapse:collapse;}}
+  th{{text-align:left;font-size:11px;color:var(--text-dim);text-transform:uppercase;padding:8px 12px;border-bottom:1px solid var(--border);}}
+  td{{padding:10px 12px;border-bottom:1px solid rgba(26,39,68,0.5);}}
+  .canvas-wrap{{background:var(--surface);border:1px solid var(--border);padding:16px;}}
+  canvas{{display:block;width:100%;max-width:880px;}}
+  .canvas-label{{font-size:11px;color:var(--text-dim);margin-top:8px;text-align:center;font-family:'Share Tech Mono',monospace;}}
+</style>
+</head>
+<body>
+<div class="nav">
+  <div class="nav-logo mono">&#9635; ARIA PROGRESS</div>
+  <div class="nav-links">
+    <a href="/live">Live NOC</a>
+    <a href="/challenge">Challenge</a>
+    <a href="/replays/html">Replays</a>
+    <a href="/docs">API Docs</a>
+  </div>
+</div>
+<div class="page">
+  <h1>Training Progress &amp; Live Performance</h1>
+  <div class="subtitle">Llama-3.1-8B fine-tuned with GRPO on 7 task types &middot; 14 actions &middot; Dense reward shaping</div>
+  <div class="stats-row">
+    <div class="stat-card"><div class="stat-label">Live Episodes</div><div class="stat-value" id="live-eps" style="color:var(--blue)">{total_eps}</div></div>
+    <div class="stat-card"><div class="stat-label">Avg Live Score</div><div class="stat-value" id="live-avg" style="color:{overall_col}">{overall:.3f}</div></div>
+    <div class="stat-card"><div class="stat-label">Training Episodes</div><div class="stat-value" style="color:var(--blue)">160</div></div>
+    <div class="stat-card"><div class="stat-label">Model</div><div class="stat-value" style="font-size:14px;color:var(--cyan)">8B GRPO</div></div>
+  </div>
+  <section>
+    <h2>Section 1 &mdash; Live Task Performance vs Random Baseline</h2>
+    {bars}
+  </section>
+  <section>
+    <h2>Section 2 &mdash; Training Improvement (Llama-3.1-8B, GRPO)</h2>
+    <table>
+      <thead><tr><th>Task</th><th>Baseline</th><th>Fine-tuned</th><th>Improvement</th></tr></thead>
+      <tbody>{training_rows}</tbody>
+    </table>
+  </section>
+  <section>
+    <h2>Section 3 &mdash; Live Episode Score Timeline</h2>
+    <div class="canvas-wrap">
+      <canvas id="timeline-canvas" width="880" height="120"></canvas>
+      <div class="canvas-label mono" id="canvas-label">Last 20 episodes &middot; updates every 30s</div>
+    </div>
+  </section>
+</div>
+<script>
+  const SCORES = {recent_scores_js};
+  function drawTimeline(scores) {{
+    const canvas = document.getElementById('timeline-canvas');
+    canvas.width = canvas.parentElement.clientWidth - 32;
+    const ctx = canvas.getContext('2d');
+    const W = canvas.width, H = 120;
+    ctx.clearRect(0, 0, W, H);
+    if (scores.length === 0) {{
+      ctx.fillStyle = '#4a6080'; ctx.font = '13px Share Tech Mono, monospace';
+      ctx.textAlign = 'center'; ctx.fillText('No episodes yet', W/2, H/2); return;
+    }}
+    const pad = 30, plotW = W - pad * 2, plotH = H - pad * 2;
+    ctx.strokeStyle = '#1a2744'; ctx.lineWidth = 1;
+    [0, 0.25, 0.5, 0.75, 1.0].forEach(v => {{
+      const y = pad + plotH - v * plotH;
+      ctx.beginPath(); ctx.moveTo(pad, y); ctx.lineTo(W - pad, y); ctx.stroke();
+      ctx.fillStyle = '#4a6080'; ctx.font = '10px Share Tech Mono, monospace';
+      ctx.textAlign = 'right'; ctx.fillText(v.toFixed(2), pad - 4, y + 3);
+    }});
+    const n = scores.length;
+    const pts = scores.map((s, i) => [pad + (i / Math.max(n-1, 1)) * plotW, pad + plotH - s * plotH]);
+    ctx.strokeStyle = '#4d9fff'; ctx.lineWidth = 2; ctx.lineJoin = 'round';
+    ctx.beginPath(); pts.forEach(([x,y], i) => i === 0 ? ctx.moveTo(x,y) : ctx.lineTo(x,y)); ctx.stroke();
+    pts.forEach(([x,y], i) => {{
+      const s = scores[i];
+      ctx.fillStyle = s >= 0.7 ? '#00ff88' : s >= 0.4 ? '#ffaa00' : '#ff3355';
+      ctx.beginPath(); ctx.arc(x, y, 4, 0, Math.PI*2); ctx.fill();
+    }});
+  }}
+  drawTimeline(SCORES);
+  async function refresh() {{
+    try {{
+      const res = await fetch('/metrics'); const data = await res.json();
+      document.getElementById('live-eps').textContent = data.total_episodes || 0;
+      const avg = data.overall_avg_score || 0;
+      document.getElementById('live-avg').textContent = avg.toFixed(3);
+    }} catch(e) {{}}
+  }}
+  setInterval(refresh, 30000);
+</script>
+</body>
+</html>"""
+    return HTMLResponse(html)
