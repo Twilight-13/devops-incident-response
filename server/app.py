@@ -495,14 +495,11 @@ async def live_dashboard():
     document.getElementById('clock').textContent = now.toTimeString().split(' ')[0];
   }}, 1000);
 
-  let ws = null;
-  let currentTask = 'easy';
-  let currentSeed = 42;
-  let stepCount = 0;
-  let totalScore = 0;
-  let isRunning = false;
+  let currentEpisodeId = null;
+  let lastStep = -1;
   let rewardHistory = [];
-  
+  let totalScore = 0;
+
   function getScoreColor(sc) {{
     if(sc < 0.3) return 'var(--red)';
     if(sc < 0.6) return 'var(--yellow)';
@@ -522,11 +519,6 @@ async def live_dashboard():
     gs.style.color = col;
     
     document.getElementById('score-bar').style.width = Math.min(100, sc * 100) + '%';
-  }}
-
-  function updateStepCounter() {{
-    document.getElementById('top-step').textContent = `${{stepCount.toString().padStart(2,'0')}} / 15`;
-    document.getElementById('stat-step').textContent = `STEP ${{stepCount}}/15`;
   }}
 
   function addLog(type, arg1, arg2) {{
@@ -586,74 +578,79 @@ async def live_dashboard():
     }});
   }}
 
-  function startEpisode(task, seed) {{
-    stepCount = 0;
-    totalScore = 0;
-    rewardHistory = [];
-    isRunning = true;
-    currentTask = task;
-    currentSeed = seed;
-    
-    document.getElementById('stat-task').textContent = `TASK: ${{task.toUpperCase()}}`;
-    document.getElementById('stat-seed').textContent = `SEED: ${{seed}}`;
-    updateStepCounter();
-    updateScoreDisplay();
-    updateSparkline();
-    document.getElementById('alerts-list').innerHTML = '<div class="no-alerts mono">◎ ALL SYSTEMS NOMINAL</div>';
-    document.getElementById('alert-count').textContent = '0';
-    document.getElementById('alert-count').style.background = 'var(--surface2)';
-    
-    addLog('EPISODE_START', task, seed);
-    if(ws && ws.readyState === WebSocket.OPEN) {{
-      ws.send(JSON.stringify({{command: "reset", task_id: task, seed: seed}}));
-    }}
-  }}
-
-  function deployIncident() {{
-    const task = document.getElementById('task-select').value;
-    const seed = parseInt(document.getElementById('seed-input').value) || 42;
-    if(ws && ws.readyState === WebSocket.OPEN) {{
-      startEpisode(task, seed);
-    }} else {{
-      connectWS();
-    }}
-  }}
-
-  function connectWS() {{
-    if(ws) ws.close();
-    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    const wsUrl = `${{protocol}}//${{window.location.host}}/ws`;
-    
-    ws = new WebSocket(wsUrl);
-    
-    ws.onopen = () => {{
+  async function pollState() {{
+    try {{
+      const res = await fetch('/state');
+      if (!res.ok) throw new Error('Not OK');
+      const data = await res.json();
+      
       document.getElementById('live-dot').className = 'status-dot dot-green';
       document.getElementById('live-text').textContent = 'LIVE';
       document.getElementById('live-text').style.color = 'var(--red)';
       document.getElementById('btm-dot').className = 'status-dot dot-green';
-      document.getElementById('btm-text').textContent = '◉ WS CONNECTED';
+      document.getElementById('btm-text').textContent = '◉ API SYNC';
       document.getElementById('btm-text').style.color = 'var(--green)';
-      addLog('SYSTEM', 'WebSocket connected');
-      startEpisode(currentTask, currentSeed);
-    }};
-    
-    ws.onclose = () => {{
+
+      handleState(data);
+    }} catch(e) {{
       document.getElementById('live-dot').className = 'status-dot dot-grey';
       document.getElementById('live-text').textContent = 'OFFLINE';
       document.getElementById('live-text').style.color = 'var(--text)';
       document.getElementById('btm-dot').className = 'status-dot dot-grey';
-      document.getElementById('btm-text').textContent = '○ WS DISCONNECTED';
+      document.getElementById('btm-text').textContent = '○ API DISCONNECTED';
       document.getElementById('btm-text').style.color = 'var(--text-dim)';
-      addLog('SYSTEM', 'Disconnected — reconnecting in 3s...');
-      setTimeout(connectWS, 3000);
-    }};
+    }}
+  }}
+
+  function handleState(state) {{
+    if (!state.episode_id) return;
     
-    ws.onmessage = (event) => {{
-      let data;
-      try {{ data = JSON.parse(event.data); }} catch(e) {{ return; }}
+    if (state.episode_id !== currentEpisodeId) {{
+      currentEpisodeId = state.episode_id;
+      lastStep = -1;
+      rewardHistory = [];
+      totalScore = 0;
+      document.getElementById('agent-log').innerHTML = '';
+      addLog('EPISODE_START', state.task_id, state.info?.seed || '--');
+      document.getElementById('stat-task').textContent = `TASK: ${{state.task_id.toUpperCase()}}`;
+      document.getElementById('stat-seed').textContent = `SEED: ${{state.info?.seed || '--'}}`;
+    }}
+
+    if (state.step > lastStep) {{
+      for (let i = Math.max(0, lastStep); i < state.action_history.length; i++) {{
+        const hist = state.action_history[i];
+        const act = hist.action;
+        
+        if(act.action_type === 'diagnose') addLog('DIAGNOSE', act.root_cause);
+        else if(act.action_type === 'restart_service' || act.action_type === 'rollback_service' || act.action_type === 'block_ip') 
+          addLog('FIX', act.action_type, act.service || act.ip);
+        else addLog('ACTION', act);
+        
+        if(hist.reward !== undefined) {{
+          rewardHistory.push(hist.reward);
+          addLog('REWARD', hist.reward);
+        }}
+      }}
       
-      if(data.services) {{
-        const svcs = Object.entries(data.services).map(([name, s]) => ({{name, ...s}}));
+      lastStep = state.step;
+      totalScore = state.total_reward;
+      
+      document.getElementById('top-step').textContent = `${{state.step.toString().padStart(2,'0')}} / 15`;
+      document.getElementById('stat-step').textContent = `STEP ${{state.step}}/15`;
+      updateScoreDisplay();
+      updateSparkline();
+      
+      if (state.done || state.incident_resolved) {{
+        addLog('EPISODE_END', state.total_reward, state.step);
+        // Ensure we don't duplicate end logs
+        lastStep = 99999;
+      }}
+    }}
+
+    if (state.observation) {{
+      const obs = state.observation;
+      if (obs.services) {{
+        const svcs = Object.entries(obs.services).map(([name, s]) => ({{name, ...s}}));
         svcs.sort((a, b) => {{
           const val = (st) => st === 'down' ? 0 : (st === 'degraded' ? 1 : 2);
           return val(a.status) - val(b.status);
@@ -689,17 +686,17 @@ async def live_dashboard():
         }});
       }}
       
-      if(data.active_alerts) {{
+      if (obs.active_alerts) {{
         const alist = document.getElementById('alerts-list');
         alist.innerHTML = '';
-        document.getElementById('alert-count').textContent = data.active_alerts.length;
-        document.getElementById('alert-count').style.background = data.active_alerts.length > 0 ? 'var(--red)' : 'var(--surface2)';
+        document.getElementById('alert-count').textContent = obs.active_alerts.length;
+        document.getElementById('alert-count').style.background = obs.active_alerts.length > 0 ? 'var(--red)' : 'var(--surface2)';
         
-        if(data.active_alerts.length === 0) {{
+        if(obs.active_alerts.length === 0) {{
           alist.innerHTML = '<div class="no-alerts mono">◎ ALL SYSTEMS NOMINAL</div>';
         }} else {{
           let critFound = false;
-          data.active_alerts.slice(0, 5).forEach(a => {{
+          obs.active_alerts.slice(0, 5).forEach(a => {{
             let bg = 'var(--surface)', border = 'var(--border)', txtCol = '#000';
             if(a.severity === 'CRITICAL') {{ border = 'var(--red)'; bg = 'var(--red)'; critFound = true; }}
             else if(a.severity === 'HIGH') {{ border = '#ff6600'; bg = '#ff6600'; }}
@@ -713,8 +710,8 @@ async def live_dashboard():
               </div>
             `;
           }});
-          if(data.active_alerts.length > 5) {{
-            alist.innerHTML += `<div class="mono" style="font-size:9px; color:var(--text-dim); text-align:center">+${{data.active_alerts.length - 5}} more</div>`;
+          if(obs.active_alerts.length > 5) {{
+            alist.innerHTML += `<div class="mono" style="font-size:9px; color:var(--text-dim); text-align:center">+${{obs.active_alerts.length - 5}} more</div>`;
           }}
           if(critFound) {{
             const lp = document.getElementById('left-panel');
@@ -724,43 +721,28 @@ async def live_dashboard():
           }}
         }}
       }}
-      
-      if(data.action !== undefined && isRunning) {{
-        stepCount++;
-        updateStepCounter();
-        
-        let act = data.action;
-        if(typeof act === 'string') try{{ act = JSON.parse(act) }}catch(e){{}}
-        
-        if(act.action_type === 'diagnose') addLog('DIAGNOSE', act.root_cause);
-        else if(act.action_type === 'restart_service' || act.action_type === 'rollback_service' || act.action_type === 'block_ip') 
-          addLog('FIX', act.action_type, act.service || act.ip);
-        else addLog('ACTION', act);
-        
-        if(data.evidence) addLog('EVIDENCE', data.evidence);
-        if(data.reward !== undefined) {{
-          totalScore += data.reward;
-          rewardHistory.push(data.reward);
-          addLog('REWARD', data.reward);
-          updateScoreDisplay();
-          updateSparkline();
-        }}
-        
-        if(data.done) {{
-          isRunning = false;
-          addLog('EPISODE_END', totalScore, stepCount);
-          updateScoreDisplay();
-          setTimeout(() => {{
-            currentSeed = Math.floor(Math.random() * 99999);
-            document.getElementById('seed-input').value = currentSeed;
-            startEpisode(currentTask, currentSeed);
-          }}, 4000);
-        }}
-      }}
-    }};
+    }}
   }}
 
-  window.onload = connectWS;
+  async function deployIncident() {{
+    const task = document.getElementById('task-select').value;
+    const seed = parseInt(document.getElementById('seed-input').value) || 42;
+    
+    // Call REST API
+    try {{
+      await fetch('/reset', {{
+        method: 'POST',
+        headers: {{'Content-Type': 'application/json'}},
+        body: JSON.stringify({{task_id: task, seed: seed}})
+      }});
+      // The poller will pick up the state change
+    }} catch (e) {{
+      console.error(e);
+    }}
+  }}
+
+  setInterval(pollState, 1000);
+  pollState();
 </script>
 </body>
 </html>
