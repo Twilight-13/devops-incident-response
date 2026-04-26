@@ -18,6 +18,24 @@ import re
 import time
 import requests
 
+# Load .env from project root before anything else reads os.environ
+def _load_dotenv():
+    env_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env")
+    if not os.path.exists(env_path):
+        return
+    try:
+        from dotenv import load_dotenv
+        load_dotenv(env_path, override=False)
+    except ImportError:
+        with open(env_path) as f:
+            for line in f:
+                line = line.strip()
+                if line and not line.startswith("#") and "=" in line:
+                    k, v = line.split("=", 1)
+                    os.environ.setdefault(k.strip(), v.strip())
+
+_load_dotenv()
+
 # Force UTF-8 on Windows (emoji in Rich panels would otherwise crash cp1252)
 if sys.platform == "win32" and hasattr(sys.stdout, "reconfigure"):
     sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -53,10 +71,20 @@ console = Console(
 
 # ─── Model loading ────────────────────────────────────────────────────────────
 
+def _get_model_device(model):
+    try:
+        return next(model.parameters()).device
+    except Exception:
+        import torch
+        return torch.device("cpu")
+
+
 def load_model():
     import torch
-    if not torch.cuda.is_available():
-        console.print("[yellow]⚠ No GPU detected. LLM mode requires a GPU.[/yellow]")
+    if torch.cuda.is_available():
+        console.print(f"[green]✓ CUDA available: {torch.cuda.get_device_name(0)}[/green]")
+    else:
+        console.print("[yellow]⚠ No CUDA GPU detected. LLM mode requires a GPU.[/yellow]")
         console.print("[yellow]  Running on CPU will be very slow (5-10 min per step).[/yellow]")
         console.print("[yellow]  Consider using heuristic mode (n) instead.[/yellow]")
 
@@ -107,7 +135,7 @@ def load_model():
         except Exception:
             base = AutoModelForCausalLM.from_pretrained(
                 BASE_MODEL,
-                dtype=torch.float16,
+                torch_dtype=torch.float16,
                 device_map="auto",
                 trust_remote_code=True,
                 low_cpu_mem_usage=True,
@@ -120,6 +148,12 @@ def load_model():
 
         tokenizer = AutoTokenizer.from_pretrained(ADAPTER_REPO)
         console.print(f"[green]✓ Model ready: {ADAPTER_REPO}[/green]")
+
+    device = _get_model_device(model)
+    console.print(f"[green]✓ Model device: {device}[/green]")
+    if str(device) == "cpu":
+        console.print("[yellow]⚠ Model is on CPU. Install PyTorch with CUDA support for GPU inference:[/yellow]")
+        console.print("[yellow]  pip install torch --index-url https://download.pytorch.org/whl/cu121[/yellow]")
 
     return model, tokenizer
 
@@ -283,6 +317,7 @@ def get_next_action(obs, step_history, task_id="easy"):
 
 def get_next_action_llm(model, tokenizer, obs, task_id):
     import torch
+    device = _get_model_device(model)
     msgs = [
         {"role": "system", "content": SYSTEM_PROMPT},
         {"role": "user",   "content": obs_to_prompt(obs, task_id)}
@@ -291,7 +326,7 @@ def get_next_action_llm(model, tokenizer, obs, task_id):
         msgs, tokenize=True,
         add_generation_prompt=True,
         return_tensors="pt"
-    ).to("cuda")
+    ).to(device)
     with torch.no_grad():
         out = model.generate(
             ids, max_new_tokens=80,
