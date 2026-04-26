@@ -54,18 +54,33 @@ console = Console(
 # ─── Model loading ────────────────────────────────────────────────────────────
 
 def load_model():
-    from unsloth import FastLanguageModel
-    import torch
-
     console.print("[cyan]Loading ARIA fine-tuned model...[/cyan]")
-    model, tokenizer = FastLanguageModel.from_pretrained(
-        model_name=MODEL_REPO,
-        max_seq_length=2048,
-        load_in_4bit=True,
-        token=HF_TOKEN,
-    )
-    FastLanguageModel.for_inference(model)
-    console.print(f"[green]✓ Model loaded: {MODEL_REPO}[/green]")
+    try:
+        from unsloth import FastLanguageModel
+        import torch
+
+        model, tokenizer = FastLanguageModel.from_pretrained(
+            model_name=MODEL_REPO,
+            max_seq_length=2048,
+            load_in_4bit=True,
+            token=HF_TOKEN,
+        )
+        FastLanguageModel.for_inference(model)
+        console.print(f"[green]✓ Model loaded via Unsloth: {MODEL_REPO}[/green]")
+    except ModuleNotFoundError:
+        console.print("[yellow]! Unsloth not found. Falling back to standard transformers...[/yellow]")
+        from transformers import AutoModelForCausalLM, AutoTokenizer
+        import torch
+
+        tokenizer = AutoTokenizer.from_pretrained(MODEL_REPO, token=HF_TOKEN)
+        model = AutoModelForCausalLM.from_pretrained(
+            MODEL_REPO,
+            token=HF_TOKEN,
+            device_map="auto",
+            torch_dtype=torch.float16,
+        )
+        console.print(f"[green]✓ Model loaded via Transformers: {MODEL_REPO}[/green]")
+        
     return model, tokenizer
 
 # ─── System prompt ────────────────────────────────────────────────────────────
