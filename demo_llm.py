@@ -54,38 +54,73 @@ console = Console(
 # ─── Model loading ────────────────────────────────────────────────────────────
 
 def load_model():
+    import torch
+    if not torch.cuda.is_available():
+        console.print("[yellow]⚠ No GPU detected. LLM mode requires a GPU.[/yellow]")
+        console.print("[yellow]  Running on CPU will be very slow (5-10 min per step).[/yellow]")
+        console.print("[yellow]  Consider using heuristic mode (n) instead.[/yellow]")
+
+    import os
+    hf_token = os.environ.get('HF_TOKEN', None)
+    if hf_token:
+        from huggingface_hub import login
+        login(token=hf_token, add_to_git_credential=False)
+        console.print("[green]✓ HF authenticated[/green]")
+
     console.print("[cyan]Loading ARIA fine-tuned model...[/cyan]")
-    token = HF_TOKEN if HF_TOKEN else None
 
     try:
         from unsloth import FastLanguageModel
-        import torch
 
         model, tokenizer = FastLanguageModel.from_pretrained(
             model_name=MODEL_REPO,
             max_seq_length=2048,
             load_in_4bit=True,
-            token=token,
+            token=hf_token,
         )
         FastLanguageModel.for_inference(model)
         console.print(f"[green]✓ Model loaded via Unsloth: {MODEL_REPO}[/green]")
     except ModuleNotFoundError:
-        console.print("[yellow]! Unsloth not found. Falling back to standard transformers + PEFT...[/yellow]")
+        console.print("[yellow]! Unsloth not found. Falling back to transformers + PEFT...[/yellow]")
         from transformers import AutoModelForCausalLM, AutoTokenizer
         from peft import PeftModel
-        import torch
 
         BASE_MODEL = "unsloth/Meta-Llama-3.1-8B-Instruct"
-        tokenizer = AutoTokenizer.from_pretrained(MODEL_REPO, token=token)
-        base_model = AutoModelForCausalLM.from_pretrained(
-            BASE_MODEL,
-            token=token,
-            device_map="auto",
-            torch_dtype=torch.float16,
-        )
-        model = PeftModel.from_pretrained(base_model, MODEL_REPO, token=token)
-        console.print(f"[green]✓ Model loaded via Transformers + PEFT: {MODEL_REPO}[/green]")
-        
+        ADAPTER_REPO = "Arijit-07/aria-devops-llama8b"
+
+        console.print("[cyan]Loading base model (4-bit)...[/cyan]")
+
+        try:
+            from transformers import BitsAndBytesConfig
+            bnb_config = BitsAndBytesConfig(
+                load_in_4bit=True,
+                bnb_4bit_quant_type="nf4",
+                bnb_4bit_compute_dtype=torch.float16,
+            )
+            base = AutoModelForCausalLM.from_pretrained(
+                BASE_MODEL,
+                quantization_config=bnb_config,
+                device_map="auto",
+                trust_remote_code=True,
+            )
+            console.print("[green]✓ Loaded in 4-bit[/green]")
+        except Exception:
+            base = AutoModelForCausalLM.from_pretrained(
+                BASE_MODEL,
+                dtype=torch.float16,
+                device_map="auto",
+                trust_remote_code=True,
+                low_cpu_mem_usage=True,
+            )
+            console.print("[yellow]✓ Loaded in float16[/yellow]")
+
+        console.print("[cyan]Loading LoRA adapter...[/cyan]")
+        model = PeftModel.from_pretrained(base, ADAPTER_REPO)
+        model.eval()
+
+        tokenizer = AutoTokenizer.from_pretrained(ADAPTER_REPO)
+        console.print(f"[green]✓ Model ready: {ADAPTER_REPO}[/green]")
+
     return model, tokenizer
 
 # ─── System prompt ────────────────────────────────────────────────────────────
@@ -327,7 +362,7 @@ ACTION_COLOR = {
 
 def make_header(task_id, step, max_steps, score, use_llm):
     if use_llm:
-        agent_label = Text("🧠 LLM: Llama-3.1-8B (fine-tuned)", style="bold green")
+        agent_label = Text("🧠 LLM: Llama-3.1-8B + LoRA adapter (97MB)", style="bold green")
     else:
         agent_label = Text("🔧 HEURISTIC AGENT", style="bold yellow")
     t = Text()
