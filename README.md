@@ -199,6 +199,12 @@ POST /multi-agent/step/b/{id}  # {"action_type": "restart_service", ...}
 | POST | `/multi-agent/reset` | Start dual-agent session |
 | POST | `/multi-agent/step/a/{id}` | Agent A shares finding |
 | POST | `/multi-agent/step/b/{id}` | Agent B takes action |
+| GET | `/live` | Live NOC dashboard (real-time) |
+| GET | `/challenge` | Human vs Agent challenge |
+| GET | `/progress` | Score progression visualization |
+| GET | `/replays` | Episode replay list |
+| GET | `/replay/{id}` | Full episode replay |
+| GET | `/replay/{id}/html` | Replay HTML viewer |
 | GET | `/docs` | Swagger UI |
 
 ---
