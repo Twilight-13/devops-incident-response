@@ -20,8 +20,6 @@ tags:
   - pytorch
   - meta
 short_description: "OpenEnv RL for incident response. 7 tasks, Llama-3.1-8B"
-  OpenEnv RL environment for production incident response —
-  7 tasks, curriculum engine, dual-agent mode, trained Llama-3.1-8B
 ---
 
 # ARIA — DevOps Incident Response
