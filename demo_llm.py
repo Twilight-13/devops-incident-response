@@ -40,8 +40,6 @@ DEFAULT_TASK = "easy"
 DEFAULT_SEED = 42
 
 MODEL_REPO = "Arijit-07/aria-devops-llama8b"
-# fallback to 3b if 8b not ready:
-# MODEL_REPO = "Arijit-07/aria-devops-llama3b"
 
 HF_TOKEN = os.environ.get('HF_TOKEN', '')
 

@@ -808,64 +808,6 @@ def health():
     return {"status": "ok", "env": "devops-incident-response", "version": "2.0.0"}
 
 
-@app.get("/about")
-def about():
-    """
-    Full environment metadata for LLM judges and researchers.
-
-    Returns a comprehensive description of the ARIA environment including
-    task count, action types, feature flags, training metadata, reward
-    design philosophy, and links to the live space, trained model, and docs.
-
-    Returns:
-        JSON object with name, version, description, themes, task/action counts,
-        feature descriptions, training info, reward design, and links.
-    """
-    return {
-        "name": "ARIA — DevOps Incident Response",
-        "version": "2.0.0",
-        "description": (
-            "OpenEnv-compliant RL environment for production incident response. "
-            "AI agents diagnose and remediate software incidents across 7 task types "
-            "using 14 actions with dense reward shaping."
-        ),
-        "themes": [
-            "World Modeling: Professional Tasks",
-            "Self-Improvement",
-            "Multi-Agent Interactions",
-        ],
-        "tasks": 8,
-        "action_types": 14,
-        "features": {
-            "curriculum_engine": "Adaptive difficulty based on agent performance",
-            "incident_generator": "Procedural incidents from seeds (0-99999)",
-            "dual_agent_mode": "Split observability — Observer + Responder",
-        },
-        "training": {
-            "model": "Llama-3.2-3B-Instruct",
-            "algorithm": "GRPO",
-            "framework": "HuggingFace TRL + Unsloth",
-            "episodes": 140,
-            "adapter_url": "https://huggingface.co/Arijit-07/aria-devops-llama3b",
-        },
-        "reward_design": {
-            "type": "dense",
-            "range": [0.001, 0.999],
-            "anti_gaming": [
-                "collateral_damage_penalty",
-                "blind_remediation_penalty",
-                "semantic_diagnosis_matching",
-            ],
-            "efficiency_bonus": True,
-        },
-        "links": {
-            "space": "https://arijit-07-devops-incident-response.hf.space",
-            "model": "https://huggingface.co/Arijit-07/aria-devops-llama3b",
-            "github": "https://github.com/Twilight-13/devops-incident-response",
-            "docs": "https://arijit-07-devops-incident-response.hf.space/docs",
-        },
-    }
-
 
 @app.get("/generate/preview")
 def preview_incident(seed: int = 42):
