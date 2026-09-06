@@ -17,6 +17,9 @@ AVAILABLE_RUNBOOKS = [
     "deployment_rollback.md",
     "cascade_failure.md",
     "data_corruption.md",
+    "dns_failure.md",
+    "waf_cpu.md",
+    "thundering_herd.md",
 ]
 
 TASK_DESCRIPTIONS = {
@@ -43,6 +46,27 @@ TASK_DESCRIPTIONS = {
         "They are unrelated — fixing one will NOT fix the other. "
         "Identify both root causes and remediate each independently. "
         "Full credit requires resolving both."
+    ),
+    "dns": (
+        "PRODUCTION INCIDENT (Based on real GitHub DNS Outage, Jan 2016) — "
+        "A Puppet manifest bug restarted the wrong nameserver. DNS resolution is failing. "
+        "847 records return NXDOMAIN. A re-deploy attempt made things worse — the zone-rebuild "
+        "script itself depends on DNS. Read the authoritative and caching nameserver logs carefully. "
+        "Two fixes required: restart dns-caching AND rollback the puppet manifest."
+    ),
+    "waf": (
+        "PRODUCTION INCIDENT (Based on real Cloudflare Outage, July 2019) — "
+        "A WAF rule containing a malformed regular expression (catastrophic backtracking) "
+        "was fast-tracked to production. CPU is at 100% on all edge nodes. "
+        "Restarting the WAF will NOT fix this — the bad rule reloads on start. "
+        "The correct fix is to rollback the waf-rule-manager to the previous rule set."
+    ),
+    "thundering_herd": (
+        "PRODUCTION INCIDENT (Based on real Slack Outage, Feb 2022) — "
+        "All Redis cache nodes were removed simultaneously. This caused a thundering herd: "
+        "every app server now hammers the Vitess database cluster directly. "
+        "Connection pool is exhausted. Query failure rate is 67%. "
+        "Two fixes required: scale up vitess-primary AND alert oncall to restore cache nodes."
     ),
 }
 

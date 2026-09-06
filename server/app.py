@@ -72,7 +72,7 @@ try:
 except ImportError:
     HAS_WEB_INTERFACE = False
 
-VALID_TASKS = ("easy", "medium", "hard", "bonus", "security", "database", "failover")
+VALID_TASKS = ("easy", "medium", "hard", "bonus", "security", "database", "failover", "dns", "waf", "thundering_herd")
 _env = DevOpsEnvironment()
 app = FastAPI(
     title="DevOps Incident Response — OpenEnv",

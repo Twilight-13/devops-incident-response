@@ -239,7 +239,7 @@ uvicorn api:app --host 0.0.0.0 --port 7860
 ├── api.py / server/app.py    # FastAPI — all endpoints
 ├── env.py                    # Environment dispatcher
 ├── models.py                 # Pydantic models
-├── tasks/                    # 7 tasks + generated
+├── tasks/                    # 10 tasks + generated
 ├── curriculum/engine.py      # Adaptive difficulty
 ├── generator/                # Procedural incidents
 ├── multi_agent/session.py    # Dual-agent mode
@@ -249,5 +249,22 @@ uvicorn api:app --host 0.0.0.0 --port 7860
 ├── BLOG.md                   # Project story
 └── openenv.yaml              # OpenEnv manifest
 ```
+
+## Real Incident Data Sources
+
+Tasks 8–10 are reconstructed from real public post-mortems:
+
+| Task | Real Incident | Source |
+|------|--------------|--------|
+| **Task 8 — DNS Failure** | GitHub DNS Outage (January 2016) — Puppet manifest bug restarted only the authoritative nameserver; re-deploy during incident corrupted the zone file further | [github.blog](https://github.blog/news-insights/the-library/dns-outage-post-mortem/) |
+| **Task 9 — WAF CPU Exhaustion** | Cloudflare Global Outage (July 2, 2019) — Single WAF rule with catastrophically backtracking regex caused 100% CPU across all edge nodes; 27-minute worldwide downtime | [blog.cloudflare.com](https://blog.cloudflare.com/details-of-the-cloudflare-outage-on-july-2-2019/) |
+| **Task 10 — Thundering Herd** | Slack Outage (February 22, 2022) — Simultaneous removal of all Redis cache nodes caused a thundering herd on the Vitess database cluster; 67% query failure rate | [slack.engineering](https://slack.engineering/slacks-incident-on-2-22-22/) |
+
+Log patterns, error messages, service names, and failure sequences are adapted from the public
+post-mortem reports. These tasks teach agents that real incidents have specific domain knowledge
+requirements (DNS zones, WAF rules, cache infrastructure) and that some instinctive actions
+(restarting the WAF, re-deploying during a DNS incident) actively worsen the situation.
+
+---
 
 Apache 2.0 · *Built solo for the Meta × PyTorch × HuggingFace OpenEnv Hackathon Finals — Bangalore, April 2026*

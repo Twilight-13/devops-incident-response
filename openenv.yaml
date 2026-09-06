@@ -133,6 +133,59 @@ tasks:
     expected_score_random_agent: 0.02
     expected_score_strong_llm: 0.60
 
+  - id: dns
+    name: DNS Configuration Failure (Based on GitHub DNS Outage, Jan 2016)
+    description: >
+      A Puppet manifest bug restarted only the authoritative nameserver, not the caching
+      nameserver. DNS resolution is broken — 847 records return NXDOMAIN. A re-deploy
+      attempt made things worse: the zone-rebuild script called an internal API over DNS,
+      which was already broken, writing a corrupt empty zone. Based on the real GitHub DNS
+      outage (January 2016). Agents must avoid re-deploying during DNS incidents and
+      correctly identify both fixes: restart dns-caching AND rollback the puppet manifest.
+    difficulty: medium
+    max_steps: 20
+    reward_range: [0.0, 1.0]
+    expected_score_random_agent: 0.02
+    expected_score_strong_llm: 0.65
+    data_source: >
+      Real incident: GitHub DNS Outage (January 2016)
+      Post-mortem: https://github.blog/news-insights/the-library/dns-outage-post-mortem/
+
+  - id: waf
+    name: WAF CPU Exhaustion via Catastrophic Regex (Based on Cloudflare Outage, Jul 2019)
+    description: >
+      A WAF rule containing a ReDoS-vulnerable regular expression ('^(a+)+$' pattern class)
+      was fast-tracked to production without staging testing. CPU hit 100% across all edge
+      nodes immediately. Restarting the WAF service does NOT fix this — the bad rule reloads
+      on start. Based on the real Cloudflare global outage (July 2, 2019, 27-minute downtime).
+      The correct fix is to rollback the waf-rule-manager to the previous rule set (v2.4.0).
+    difficulty: medium
+    max_steps: 18
+    reward_range: [0.0, 1.0]
+    expected_score_random_agent: 0.02
+    expected_score_strong_llm: 0.70
+    data_source: >
+      Real incident: Cloudflare Global Outage (July 2, 2019)
+      Post-mortem: https://blog.cloudflare.com/details-of-the-cloudflare-outage-on-july-2-2019/
+
+  - id: thundering_herd
+    name: Cache Thundering Herd (Based on Slack Outage, Feb 2022)
+    description: >
+      The infrastructure team removed all 3 Redis cache nodes simultaneously during a cost
+      optimization. Cache hit rate dropped from 100% to 0% instantly. All app servers began
+      hitting the Vitess database cluster directly — a thundering herd. Vitess connection pool
+      exhausted (500/500), query failure rate reached 67%. Based on the real Slack outage
+      (February 22, 2022). Requires scaling up vitess-primary AND alerting oncall to restore
+      cache nodes — both actions needed for full resolution.
+    difficulty: hard
+    max_steps: 22
+    reward_range: [0.0, 1.0]
+    expected_score_random_agent: 0.01
+    expected_score_strong_llm: 0.55
+    data_source: >
+      Real incident: Slack Outage (February 22, 2022)
+      Post-mortem: https://slack.engineering/slacks-incident-on-2-22-22/
+
 action_space:
   type: structured
   description: >
