@@ -89,18 +89,40 @@ SWE-bench tests code generation. WebArena tests web navigation. Nothing trains a
 
 ---
 
-## 🎬 The 7 Tasks
+## 🎬 The 10 Tasks
 
-| Task | Max Steps | Random | Strong LLM | Scenario |
-|---|---|---|---|---|
-| `easy` | 15 | 0.05 | 0.85–1.00 | Single service OOM crash-loop |
-| `medium` | 20 | 0.03 | 0.55–0.75 | Cascading failure + red herring alert |
-| `hard` | 25 | 0.01 | 0.30–0.50 | **Silent** corruption — all services green |
-| `bonus` | 25 | 0.01 | 0.35–0.55 | Two simultaneous independent failures |
-| `security` | 20 | 0.01 | 0.40–0.60 | DDoS botnet credential stuffing |
-| `database` | 20 | 0.01 | 0.45–0.65 | Missing index — full table scans |
-| `failover` | 25 | 0.01 | 0.35–0.55 | Multi-region network partition |
-| `generated` | 20 | 0.01 | variable | Procedural — seed-deterministic |
+| Task | Max Steps | Scenario |
+|---|---|---|
+| `easy` | 15 | Single service OOM crash-loop |
+| `medium` | 20 | Cascading failure + red herring alert |
+| `hard` | 25 | **Silent** corruption — all services green |
+| `bonus` | 25 | Two simultaneous independent failures |
+| `security` | 20 | DDoS botnet credential stuffing |
+| `database` | 20 | Missing index — full table scans |
+| `failover` | 25 | Multi-region network partition |
+| `dns` | 20 | GitHub 2016 DNS outage (authoritative vs caching) |
+| `waf` | 18 | Cloudflare 2019 WAF CPU exhaustion (ReDoS) |
+| `thundering_herd`| 22 | Slack 2022 cache thundering herd |
+| `generated` | 20 | Procedural — seed-deterministic |
+
+### 📊 Baseline Benchmarks (20 seeds/task)
+
+Scores evaluate to `[0.0, 1.0]` using `grade_episode()`.
+
+| Task | RandomAgent | RuleBasedAgent | InformationFirstAgent |
+|---|---|---|---|
+| `easy` | 0.138 ± 0.185 | 0.713 ± 0.000 | 0.877 ± 0.000 |
+| `medium` | 0.083 ± 0.127 | 0.001 ± 0.000 | 0.546 ± 0.027 |
+| `hard` | 0.062 ± 0.099 | 0.200 ± 0.000 | 0.150 ± 0.000 |
+| `bonus` | 0.065 ± 0.106 | 0.001 ± 0.000 | 0.999 ± 0.000 |
+| `security` | 0.006 ± 0.022 | 0.001 ± 0.000 | 0.050 ± 0.000 |
+| `database` | 0.042 ± 0.081 | 0.001 ± 0.000 | 0.150 ± 0.000 |
+| `failover` | 0.002 ± 0.004 | 0.001 ± 0.000 | 0.001 ± 0.000 |
+| `dns` | 0.036 ± 0.060 | 0.001 ± 0.000 | 0.780 ± 0.000 |
+| `waf` | 0.090 ± 0.147 | 0.001 ± 0.000 | 0.807 ± 0.000 |
+| `thundering_herd`| 0.016 ± 0.033 | 0.001 ± 0.000 | 0.999 ± 0.000 |
+| **MEAN** | **0.054** | **0.092** | **0.536** |
+
 
 ---
 
