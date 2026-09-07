@@ -77,7 +77,7 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-VALID_TASKS = ("easy", "medium", "hard", "bonus", "security", "database", "failover")
+VALID_TASKS = ("easy", "medium", "hard", "bonus", "security", "database", "failover", "dns", "waf", "thundering_herd")
 _env: Optional[DevOpsIncidentEnv] = None
 multi_agent_sessions: dict[str, DualAgentSession] = {}
 
@@ -743,6 +743,42 @@ def list_tasks():
                     "A primary datacenter region (us-east-1) is degraded due to a network partition. "
                     "The agent must correctly identify which services support automatic multi-region failover "
                     "and which do not. Failing over the wrong services causes severe data inconsistency penalties."
+                ),
+            },
+            {
+                "id": "dns",
+                "name": "DNS Configuration Failure",
+                "difficulty": "medium",
+                "max_steps": 20,
+                "description": (
+                    "Based on the real GitHub DNS Outage (Jan 2016). "
+                    "A Puppet manifest bug restarted the wrong nameserver. 847 records return NXDOMAIN. "
+                    "A re-deploy attempt made things worse — the zone-rebuild script depended on DNS itself. "
+                    "Fix: restart dns-caching AND rollback the puppet manifest."
+                ),
+            },
+            {
+                "id": "waf",
+                "name": "WAF CPU Exhaustion (Regex Backtracking)",
+                "difficulty": "medium",
+                "max_steps": 18,
+                "description": (
+                    "Based on the real Cloudflare Global Outage (Jul 2019). "
+                    "A WAF rule with a catastrophically backtracking regex caused 100% CPU on all edge nodes. "
+                    "Restarting the WAF does NOT fix it — the bad rule reloads on start. "
+                    "Fix: rollback waf-rule-manager to the previous rule set."
+                ),
+            },
+            {
+                "id": "thundering_herd",
+                "name": "Cache Thundering Herd",
+                "difficulty": "hard",
+                "max_steps": 22,
+                "description": (
+                    "Based on the real Slack Outage (Feb 2022). "
+                    "All 3 Redis cache nodes were removed simultaneously. Every app server now hits the "
+                    "Vitess DB directly — a thundering herd. Connection pool exhausted, 67% query failure. "
+                    "Fix: scale up vitess-primary AND alert oncall to restore cache nodes."
                 ),
             },
             {

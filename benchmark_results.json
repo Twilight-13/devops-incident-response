@@ -1,5 +1,6 @@
 {
   "metadata": {
+    "scoring": "grade_episode() \u2014 [0.0, 1.0]",
     "num_seeds": 20,
     "tasks": [
       "easy",
@@ -18,163 +19,193 @@
       "RuleBasedAgent",
       "InformationFirstAgent"
     ],
-    "generated_at": "2026-09-07T06:01:43.206364+00:00"
+    "generated_at": "2026-09-07T06:11:26.487861+00:00"
   },
   "results": {
     "RandomAgent": {
       "easy": {
-        "mean": -0.1445,
-        "std": 0.2851,
-        "resolved_rate": 0.4
+        "mean": 0.1379,
+        "std": 0.1847,
+        "min": 0.001,
+        "max": 0.5433
       },
       "medium": {
-        "mean": -0.3965,
-        "std": 0.3272,
-        "resolved_rate": 0.25
+        "mean": 0.0834,
+        "std": 0.1273,
+        "min": 0.001,
+        "max": 0.3275
       },
       "hard": {
-        "mean": -0.66,
-        "std": 0.4601,
-        "resolved_rate": 0.25
+        "mean": 0.0619,
+        "std": 0.0986,
+        "min": 0.001,
+        "max": 0.276
       },
       "bonus": {
-        "mean": -0.2865,
-        "std": 0.2466,
-        "resolved_rate": 0.0
+        "mean": 0.0651,
+        "std": 0.1061,
+        "min": 0.001,
+        "max": 0.28
       },
       "security": {
-        "mean": -0.6905,
-        "std": 0.2029,
-        "resolved_rate": 0.0
+        "mean": 0.006,
+        "std": 0.0221,
+        "min": 0.001,
+        "max": 0.1
       },
       "database": {
-        "mean": -0.4335,
-        "std": 0.3882,
-        "resolved_rate": 0.3
+        "mean": 0.042,
+        "std": 0.081,
+        "min": 0.001,
+        "max": 0.235
       },
       "failover": {
-        "mean": -0.565,
-        "std": 0.1814,
-        "resolved_rate": 0.0
+        "mean": 0.002,
+        "std": 0.0042,
+        "min": 0.001,
+        "max": 0.02
       },
       "dns": {
-        "mean": -0.401,
-        "std": 0.2221,
-        "resolved_rate": 0.0
+        "mean": 0.0357,
+        "std": 0.0605,
+        "min": 0.001,
+        "max": 0.2
       },
       "waf": {
-        "mean": -0.25,
-        "std": 0.3182,
-        "resolved_rate": 0.3
+        "mean": 0.0902,
+        "std": 0.1466,
+        "min": 0.001,
+        "max": 0.3475
       },
       "thundering_herd": {
-        "mean": -0.3485,
-        "std": 0.2069,
-        "resolved_rate": 0.0
+        "mean": 0.0158,
+        "std": 0.0325,
+        "min": 0.001,
+        "max": 0.1
       }
     },
     "RuleBasedAgent": {
       "easy": {
-        "mean": 0.65,
+        "mean": 0.7133,
         "std": 0.0,
-        "resolved_rate": 1.0
+        "min": 0.7133,
+        "max": 0.7133
       },
       "medium": {
-        "mean": 0.5,
+        "mean": 0.001,
         "std": 0.0,
-        "resolved_rate": 0.0
+        "min": 0.001,
+        "max": 0.001
       },
       "hard": {
         "mean": 0.2,
         "std": 0.0,
-        "resolved_rate": 0.0
+        "min": 0.2,
+        "max": 0.2
       },
       "bonus": {
-        "mean": 0.22,
+        "mean": 0.001,
         "std": 0.0,
-        "resolved_rate": 0.0
+        "min": 0.001,
+        "max": 0.001
       },
       "security": {
-        "mean": -2.3,
+        "mean": 0.001,
         "std": 0.0,
-        "resolved_rate": 0.0
+        "min": 0.001,
+        "max": 0.001
       },
       "database": {
-        "mean": -1.5,
+        "mean": 0.001,
         "std": 0.0,
-        "resolved_rate": 0.0
+        "min": 0.001,
+        "max": 0.001
       },
       "failover": {
-        "mean": -1.0,
+        "mean": 0.001,
         "std": 0.0,
-        "resolved_rate": 0.0
+        "min": 0.001,
+        "max": 0.001
       },
       "dns": {
-        "mean": 0.35,
+        "mean": 0.001,
         "std": 0.0,
-        "resolved_rate": 0.0
+        "min": 0.001,
+        "max": 0.001
       },
       "waf": {
-        "mean": -1.7,
+        "mean": 0.001,
         "std": 0.0,
-        "resolved_rate": 0.0
+        "min": 0.001,
+        "max": 0.001
       },
       "thundering_herd": {
-        "mean": 0.23,
+        "mean": 0.001,
         "std": 0.0,
-        "resolved_rate": 0.0
+        "min": 0.001,
+        "max": 0.001
       }
     },
     "InformationFirstAgent": {
       "easy": {
-        "mean": 0.85,
+        "mean": 0.8767,
         "std": 0.0,
-        "resolved_rate": 1.0
+        "min": 0.8767,
+        "max": 0.8767
       },
       "medium": {
-        "mean": 0.55,
-        "std": 0.0,
-        "resolved_rate": 1.0
+        "mean": 0.5461,
+        "std": 0.0268,
+        "min": 0.5225,
+        "max": 0.575
       },
       "hard": {
-        "mean": 0.05,
+        "mean": 0.15,
         "std": 0.0,
-        "resolved_rate": 0.0
+        "min": 0.15,
+        "max": 0.15
       },
       "bonus": {
-        "mean": 1.36,
+        "mean": 0.999,
         "std": 0.0,
-        "resolved_rate": 0.0
+        "min": 0.999,
+        "max": 0.999
       },
       "security": {
-        "mean": 0.1,
+        "mean": 0.05,
         "std": 0.0,
-        "resolved_rate": 0.0
+        "min": 0.05,
+        "max": 0.05
       },
       "database": {
-        "mean": 0.2,
+        "mean": 0.15,
         "std": 0.0,
-        "resolved_rate": 0.0
+        "min": 0.15,
+        "max": 0.15
       },
       "failover": {
-        "mean": -0.1,
+        "mean": 0.001,
         "std": 0.0,
-        "resolved_rate": 0.0
+        "min": 0.001,
+        "max": 0.001
       },
       "dns": {
-        "mean": 0.75,
+        "mean": 0.78,
         "std": 0.0,
-        "resolved_rate": 0.0
+        "min": 0.78,
+        "max": 0.78
       },
       "waf": {
-        "mean": 0.75,
+        "mean": 0.8075,
         "std": 0.0,
-        "resolved_rate": 1.0
+        "min": 0.8075,
+        "max": 0.8075
       },
       "thundering_herd": {
-        "mean": 0.95,
+        "mean": 0.999,
         "std": 0.0,
-        "resolved_rate": 1.0
+        "min": 0.999,
+        "max": 0.999
       }
     }
   }
