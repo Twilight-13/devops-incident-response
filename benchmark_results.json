@@ -1,0 +1,181 @@
+{
+  "metadata": {
+    "num_seeds": 20,
+    "tasks": [
+      "easy",
+      "medium",
+      "hard",
+      "bonus",
+      "security",
+      "database",
+      "failover",
+      "dns",
+      "waf",
+      "thundering_herd"
+    ],
+    "agents": [
+      "RandomAgent",
+      "RuleBasedAgent",
+      "InformationFirstAgent"
+    ],
+    "generated_at": "2026-09-07T06:01:43.206364+00:00"
+  },
+  "results": {
+    "RandomAgent": {
+      "easy": {
+        "mean": -0.1445,
+        "std": 0.2851,
+        "resolved_rate": 0.4
+      },
+      "medium": {
+        "mean": -0.3965,
+        "std": 0.3272,
+        "resolved_rate": 0.25
+      },
+      "hard": {
+        "mean": -0.66,
+        "std": 0.4601,
+        "resolved_rate": 0.25
+      },
+      "bonus": {
+        "mean": -0.2865,
+        "std": 0.2466,
+        "resolved_rate": 0.0
+      },
+      "security": {
+        "mean": -0.6905,
+        "std": 0.2029,
+        "resolved_rate": 0.0
+      },
+      "database": {
+        "mean": -0.4335,
+        "std": 0.3882,
+        "resolved_rate": 0.3
+      },
+      "failover": {
+        "mean": -0.565,
+        "std": 0.1814,
+        "resolved_rate": 0.0
+      },
+      "dns": {
+        "mean": -0.401,
+        "std": 0.2221,
+        "resolved_rate": 0.0
+      },
+      "waf": {
+        "mean": -0.25,
+        "std": 0.3182,
+        "resolved_rate": 0.3
+      },
+      "thundering_herd": {
+        "mean": -0.3485,
+        "std": 0.2069,
+        "resolved_rate": 0.0
+      }
+    },
+    "RuleBasedAgent": {
+      "easy": {
+        "mean": 0.65,
+        "std": 0.0,
+        "resolved_rate": 1.0
+      },
+      "medium": {
+        "mean": 0.5,
+        "std": 0.0,
+        "resolved_rate": 0.0
+      },
+      "hard": {
+        "mean": 0.2,
+        "std": 0.0,
+        "resolved_rate": 0.0
+      },
+      "bonus": {
+        "mean": 0.22,
+        "std": 0.0,
+        "resolved_rate": 0.0
+      },
+      "security": {
+        "mean": -2.3,
+        "std": 0.0,
+        "resolved_rate": 0.0
+      },
+      "database": {
+        "mean": -1.5,
+        "std": 0.0,
+        "resolved_rate": 0.0
+      },
+      "failover": {
+        "mean": -1.0,
+        "std": 0.0,
+        "resolved_rate": 0.0
+      },
+      "dns": {
+        "mean": 0.35,
+        "std": 0.0,
+        "resolved_rate": 0.0
+      },
+      "waf": {
+        "mean": -1.7,
+        "std": 0.0,
+        "resolved_rate": 0.0
+      },
+      "thundering_herd": {
+        "mean": 0.23,
+        "std": 0.0,
+        "resolved_rate": 0.0
+      }
+    },
+    "InformationFirstAgent": {
+      "easy": {
+        "mean": 0.85,
+        "std": 0.0,
+        "resolved_rate": 1.0
+      },
+      "medium": {
+        "mean": 0.55,
+        "std": 0.0,
+        "resolved_rate": 1.0
+      },
+      "hard": {
+        "mean": 0.05,
+        "std": 0.0,
+        "resolved_rate": 0.0
+      },
+      "bonus": {
+        "mean": 1.36,
+        "std": 0.0,
+        "resolved_rate": 0.0
+      },
+      "security": {
+        "mean": 0.1,
+        "std": 0.0,
+        "resolved_rate": 0.0
+      },
+      "database": {
+        "mean": 0.2,
+        "std": 0.0,
+        "resolved_rate": 0.0
+      },
+      "failover": {
+        "mean": -0.1,
+        "std": 0.0,
+        "resolved_rate": 0.0
+      },
+      "dns": {
+        "mean": 0.75,
+        "std": 0.0,
+        "resolved_rate": 0.0
+      },
+      "waf": {
+        "mean": 0.75,
+        "std": 0.0,
+        "resolved_rate": 1.0
+      },
+      "thundering_herd": {
+        "mean": 0.95,
+        "std": 0.0,
+        "resolved_rate": 1.0
+      }
+    }
+  }
+}
