@@ -115,9 +115,10 @@ async def about():
         "description": (
             "OpenEnv-compliant RL environment for production incident "
             "response. AI agents diagnose and remediate software incidents "
-            "across 7 task types using 14 actions with dense reward shaping."
+            "across 10 task types (including 3 based on real post-mortems) "
+            "using 14 actions with dense reward shaping."
         ),
-        "tasks": 8,
+        "tasks": 10,
         "action_types": 14,
         "themes": [
             "World Modeling: Professional Tasks",
@@ -1537,13 +1538,13 @@ def state():
 @app.get("/tasks")
 def list_tasks():
     """
-    List all 8 tasks with metadata.
+    List all 11 tasks with metadata.
 
     Returns all available task IDs with their name, difficulty, max_steps,
     and description. Use the task_id values in POST /reset to start an episode.
 
     Returns:
-        {"tasks": [...]} — list of 8 task objects (7 curated + 1 procedural)
+        {"tasks": [...]} — list of 11 task objects (10 curated + 1 procedural)
     """
     return {
         "tasks": [
@@ -1616,6 +1617,42 @@ def list_tasks():
                 ),
             },
             {
+                "id": "dns",
+                "name": "DNS Configuration Failure",
+                "difficulty": "medium",
+                "max_steps": 20,
+                "description": (
+                    "Based on real GitHub DNS Outage (Jan 2016). "
+                    "A Puppet manifest bug restarted the wrong nameserver. 847 records return NXDOMAIN. "
+                    "A re-deploy attempt made things worse — zone-rebuild depended on DNS itself. "
+                    "Fix: restart dns-caching AND rollback the puppet manifest."
+                ),
+            },
+            {
+                "id": "waf",
+                "name": "WAF CPU Exhaustion (Regex Backtracking)",
+                "difficulty": "medium",
+                "max_steps": 18,
+                "description": (
+                    "Based on real Cloudflare Global Outage (Jul 2019). "
+                    "A WAF rule with a catastrophically backtracking regex caused 100% CPU on all edge nodes. "
+                    "Restarting the WAF does NOT fix it — the bad rule reloads on start. "
+                    "Fix: rollback waf-rule-manager to the previous rule set."
+                ),
+            },
+            {
+                "id": "thundering_herd",
+                "name": "Cache Thundering Herd",
+                "difficulty": "hard",
+                "max_steps": 22,
+                "description": (
+                    "Based on real Slack Outage (Feb 2022). "
+                    "All 3 Redis cache nodes were removed simultaneously. Every app server now hits the "
+                    "Vitess DB directly. Connection pool exhausted, 67% query failure rate. "
+                    "Fix: scale up vitess-primary AND alert oncall to restore cache nodes."
+                ),
+            },
+            {
                 "id": "generated",
                 "name": "Procedural Incident",
                 "difficulty": "variable",
@@ -1624,6 +1661,7 @@ def list_tasks():
             },
         ]
     }
+
 
 
 @app.get("/validate")
