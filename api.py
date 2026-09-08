@@ -4,7 +4,7 @@ from fastapi.responses import HTMLResponse
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 from typing import Optional
-from curriculum import CurriculumEngine
+from curriculum import CurriculumEngine, CurriculumScheduler
 from env import DevOpsIncidentEnv
 from models import Action, ActionType, Observation, StepResult, State
 from multi_agent import DualAgentSession
@@ -828,6 +828,47 @@ def get_curriculum_hint(task_id: str):
         }
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+
+
+# ─── CurriculumScheduler — level-based progression ──────────────────────────
+
+_curriculum = CurriculumScheduler()
+
+
+@app.post("/curriculum/reset")
+def curriculum_reset():
+    """Reset the level-based curriculum scheduler to level 0."""
+    global _curriculum
+    _curriculum = CurriculumScheduler()
+    return {
+        "message": "Curriculum reset",
+        "level": 0,
+        "tasks": CurriculumScheduler.LEVELS[0],
+    }
+
+
+@app.get("/curriculum/scheduler/next")
+def curriculum_scheduler_next():
+    """Get the next task from the level-based curriculum scheduler."""
+    task_id = _curriculum.select_task()
+    return {
+        "task_id": task_id,
+        "level": _curriculum.current_level,
+        "level_tasks": CurriculumScheduler.LEVELS[_curriculum.current_level],
+    }
+
+
+@app.post("/curriculum/scheduler/record")
+def curriculum_scheduler_record(task_id: str, score: float):
+    """Record a completed episode score and update the curriculum level."""
+    result = _curriculum.record_episode(task_id, score)
+    return result
+
+
+@app.get("/curriculum/stats")
+def curriculum_stats():
+    """Current level-based curriculum statistics."""
+    return _curriculum.get_stats()
 
 
 @app.get("/validate")

@@ -278,3 +278,25 @@ docker:
   state_endpoint: /state
   metrics_endpoint: /metrics
   leaderboard_endpoint: /leaderboard
+
+curriculum:
+  enabled: true
+  endpoint: /curriculum
+  levels: 4
+  advance_threshold: 0.65
+  fallback_threshold: 0.25
+  window_size: 10
+  description: >
+    Automatic task difficulty scheduling based on recent agent performance.
+    Agents progress through 4 difficulty levels as their scores improve,
+    and fall back to easier tasks when struggling. Level 0 (Beginner):
+    easy, dns. Level 1 (Intermediate): medium, waf, database. Level 2
+    (Advanced): hard, thundering_herd, security. Level 3 (Expert):
+    bonus, failover. Advancement requires avg score >= 0.65 across the
+    current level's tasks in the last 10 episodes. Implemented by
+    CurriculumScheduler in curriculum/engine.py.
+  api:
+    next_task: GET /curriculum/scheduler/next
+    record_episode: POST /curriculum/scheduler/record?task_id=easy&score=0.87
+    stats: GET /curriculum/stats
+    reset: POST /curriculum/reset

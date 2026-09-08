@@ -1,3 +1,3 @@
-from curriculum.engine import CurriculumEngine
+from curriculum.engine import CurriculumEngine, CurriculumScheduler
 
-__all__ = ["CurriculumEngine"]
+__all__ = ["CurriculumEngine", "CurriculumScheduler"]

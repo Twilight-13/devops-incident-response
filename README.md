@@ -151,16 +151,41 @@ Clamped to **(0.001, 0.999)** for GRPO stability.
 
 ## 🌟 ARIA Features
 
-### Curriculum Engine
-Rolling average per task (last 5 episodes). Promotes when avg > 0.75. Scaffolds with hints when avg < 0.30. Agents always train at the edge of their capability.
+### Curriculum Learning
+
+The environment includes an adaptive **level-based curriculum scheduler** that automatically selects task difficulty based on recent agent performance. Agents start on beginner tasks and advance through four difficulty levels.
+
+| Level | Name | Tasks | Advance When |
+|---|---|---|---|
+| 0 | Beginner | `easy`, `dns` | avg score ≥ 0.65 over last 10 episodes |
+| 1 | Intermediate | `medium`, `waf`, `database` | avg score ≥ 0.65 |
+| 2 | Advanced | `hard`, `thundering_herd`, `security` | avg score ≥ 0.65 |
+| 3 | Expert | `bonus`, `failover` | — (top level) |
+
+**Fall-back rule:** if avg score < 0.25, the scheduler drops back one level so the agent never trains on tasks that produce zero signal.
 
 ```bash
-GET /curriculum/status
-GET /curriculum/next
-POST /curriculum/record  # {"task_id": "easy", "score": 0.85}
+# Get next task to train on
+GET /curriculum/scheduler/next → {"task_id": "easy", "level": 0, "level_tasks": ["easy", "dns"]}
+
+# Record an episode score (updates level automatically)
+POST /curriculum/scheduler/record?task_id=easy&score=0.87
+→ {"level": 1, "action": "advance", "avg_score": 0.80, "message": "Advanced to level 1!"}
+
+# Check current level & stats
+GET /curriculum/stats → {"current_level": 1, "current_tasks": ["medium","waf","database"], ...}
+
+# Reset to level 0
+POST /curriculum/reset
+
+# Per-task mastery tracking (original CurriculumEngine)
+GET /curriculum/status   # rolling averages + mastery labels per task
+GET /curriculum/hint/{task_id}  # diagnostic hint when agent is stuck
 ```
 
+
 ### Incident Generator
+
 Seeds 0–99,999 → unique reproducible incidents. 6 failure modes × 8 services × 3 severities × 0–3 noise alerts.
 
 ```bash

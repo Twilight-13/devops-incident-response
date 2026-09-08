@@ -11,7 +11,7 @@ from datetime import datetime
 import uuid
 import statistics
 from generator.incident_factory import IncidentFactory
-from curriculum import CurriculumEngine
+from curriculum import CurriculumEngine, CurriculumScheduler
 from multi_agent import DualAgentSession
 
 _factory = IncidentFactory()
@@ -2131,6 +2131,73 @@ def get_curriculum_hint(task_id: str):
         }
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc))
+
+
+# ─── CurriculumScheduler — level-based progression ──────────────────────────
+
+_curriculum = CurriculumScheduler()
+
+
+@app.post("/curriculum/reset")
+def curriculum_reset():
+    """Reset the level-based curriculum scheduler to level 0."""
+    global _curriculum
+    _curriculum = CurriculumScheduler()
+    return {
+        "message": "Curriculum reset",
+        "level": 0,
+        "tasks": CurriculumScheduler.LEVELS[0],
+    }
+
+
+@app.get("/curriculum/scheduler/next")
+def curriculum_scheduler_next():
+    """
+    Get the next task from the level-based curriculum scheduler.
+
+    Returns the task and current difficulty level. The level advances
+    automatically once the agent averages >= 0.65 on the current level's
+    tasks over the last 10 episodes.
+
+    Returns:
+        {\"task_id\": \"easy\", \"level\": 0, \"level_tasks\": [\"easy\", \"dns\"]}
+    """
+    task_id = _curriculum.select_task()
+    return {
+        "task_id": task_id,
+        "level": _curriculum.current_level,
+        "level_tasks": CurriculumScheduler.LEVELS[_curriculum.current_level],
+    }
+
+
+@app.post("/curriculum/scheduler/record")
+def curriculum_scheduler_record(task_id: str, score: float):
+    """
+    Record a completed episode score and update the curriculum level.
+
+    Args:
+        task_id: Task that was just completed (query param)
+        score:   Episode score in [0.0, 1.0]   (query param)
+
+    Returns:
+        {\"level\": int, \"action\": \"advance\"|\"fallback\"|\"stay\",
+         \"avg_score\": float, \"message\": str}
+    """
+    result = _curriculum.record_episode(task_id, score)
+    return result
+
+
+@app.get("/curriculum/stats")
+def curriculum_stats():
+    """
+    Current level-based curriculum statistics.
+
+    Returns:
+        {\"current_level\": int, \"current_tasks\": [...],
+         \"total_episodes\": int, \"recent_avg_score\": float,
+         \"level_history\": [(episode_num, level), ...]}
+    """
+    return _curriculum.get_stats()
 
 
 # ─── Feature 1: Episode Replay System ────────────────────────────────────────
