@@ -1820,24 +1820,31 @@ def get_metrics():
 
 
 @app.get("/leaderboard")
-def get_leaderboard():
-    """
-    Top-10 episodes ranked by score (ties broken by fewer steps).
-
-    Returns:
-        {"leaderboard": [{"rank", "task_id", "score", "steps", "timestamp"}, ...]}
-    """
-    sorted_eps = sorted(episode_history, key=lambda x: (x["final_score"], -x["steps_taken"]), reverse=True)
-    top_10 = []
-    for i, rec in enumerate(sorted_eps[:10]):
-        top_10.append({
-            "rank": i + 1,
-            "task_id": rec["task_id"],
-            "score": rec["final_score"],
-            "steps": rec["steps_taken"],
-            "timestamp": rec["timestamp"]
-        })
-    return {"leaderboard": top_10}
+def leaderboard():
+    return {
+        "agent_comparison": {
+            "description": "Mean scores across 10 tasks, 20 seeds each",
+            "agents": {
+                "random":            {"avg": 0.054, "description": "Random action selection — lower bound"},
+                "rule_based":        {"avg": 0.092, "description": "Scripted heuristic agent"},
+                "information_first": {"avg": 0.536, "description": "Evidence-gathering heuristic — reads before acting"},
+                "grpo_llama":        {"avg": 0.53,  "description": "GRPO fine-tuned Llama (see train_grpo.ipynb)"},
+            }
+        },
+        "benchmark_table": {
+            "easy":           {"random": 0.138, "rule_based": 0.713, "info_first": 0.877},
+            "medium":         {"random": 0.083, "rule_based": 0.001, "info_first": 0.546},
+            "hard":           {"random": 0.062, "rule_based": 0.200, "info_first": 0.150},
+            "bonus":          {"random": 0.065, "rule_based": 0.001, "info_first": 0.999},
+            "security":       {"random": 0.006, "rule_based": 0.001, "info_first": 0.050},
+            "database":       {"random": 0.042, "rule_based": 0.001, "info_first": 0.150},
+            "failover":       {"random": 0.002, "rule_based": 0.001, "info_first": 0.001},
+            "dns":            {"random": 0.036, "rule_based": 0.001, "info_first": 0.780},
+            "waf":            {"random": 0.090, "rule_based": 0.001, "info_first": 0.807},
+            "thundering_herd":{"random": 0.016, "rule_based": 0.001, "info_first": 0.999},
+        },
+        "note": "Run python baselines.py to reproduce. GRPO scores from train_grpo.ipynb."
+    }
 
 
 @app.websocket("/ws")
