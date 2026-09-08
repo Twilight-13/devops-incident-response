@@ -293,25 +293,26 @@ Apache 2.0 · *Built solo for the Meta × PyTorch × HuggingFace OpenEnv Hackath
 
 ## Benchmark Results
 
-Agent comparison across all 10 tasks (20 seeds each, mean ± std deviation):
+Agent comparison across all 10 tasks (20 seeds each, `grade_episode()` scores in [0.0, 1.0]):
 
-| Task | Random | Rule-Based | Info-First | GRPO-LLaMA |
-|---|---|---|---|---|
-| easy | 0.00 ± 0.00 | 0.45 ± 0.12 | 0.72 ± 0.18 | 0.91 ± 0.08 |
-| medium | 0.00 ± 0.00 | 0.18 ± 0.09 | 0.48 ± 0.21 | 0.68 ± 0.15 |
-| hard | 0.00 ± 0.00 | 0.00 ± 0.00 | 0.12 ± 0.08 | 0.35 ± 0.19 |
-| bonus | 0.00 ± 0.00 | 0.05 ± 0.04 | 0.22 ± 0.11 | 0.38 ± 0.16 |
-| security | 0.00 ± 0.00 | 0.10 ± 0.06 | 0.35 ± 0.15 | 0.52 ± 0.14 |
-| database | 0.00 ± 0.00 | 0.12 ± 0.07 | 0.42 ± 0.18 | 0.61 ± 0.12 |
-| failover | 0.00 ± 0.00 | 0.08 ± 0.05 | 0.28 ± 0.13 | 0.44 ± 0.17 |
-| dns | 0.00 ± 0.00 | 0.15 ± 0.08 | 0.38 ± 0.16 | 0.55 ± 0.13 |
-| waf | 0.00 ± 0.00 | 0.05 ± 0.03 | 0.32 ± 0.14 | 0.48 ± 0.16 |
-| thundering_herd | 0.00 ± 0.00 | 0.08 ± 0.05 | 0.25 ± 0.12 | 0.41 ± 0.18 |
+| Task | RandomAgent | RuleBasedAgent | InformationFirstAgent |
+|---|---|---|---|
+| `easy` | 0.138 ± 0.185 | 0.713 ± 0.000 | 0.877 ± 0.000 |
+| `medium` | 0.083 ± 0.127 | 0.001 ± 0.000 | 0.546 ± 0.027 |
+| `hard` | 0.062 ± 0.099 | 0.200 ± 0.000 | 0.150 ± 0.000 |
+| `bonus` | 0.065 ± 0.106 | 0.001 ± 0.000 | 0.999 ± 0.000 |
+| `security` | 0.006 ± 0.022 | 0.001 ± 0.000 | 0.050 ± 0.000 |
+| `database` | 0.042 ± 0.081 | 0.001 ± 0.000 | 0.150 ± 0.000 |
+| `failover` | 0.002 ± 0.004 | 0.001 ± 0.000 | 0.001 ± 0.000 |
+| `dns` | 0.036 ± 0.060 | 0.001 ± 0.000 | 0.780 ± 0.000 |
+| `waf` | 0.090 ± 0.147 | 0.001 ± 0.000 | 0.807 ± 0.000 |
+| `thundering_herd` | 0.016 ± 0.033 | 0.001 ± 0.000 | 0.999 ± 0.000 |
+| **MEAN** | **0.054** | **0.092** | **0.536** |
 
 **Key findings:**
-- Random agent scores 0.0 on all tasks — no free reward, no exploits
-- Rule-based agent struggles on tasks requiring multi-step reasoning (hard, failover)
-- Information-First heuristic shows the value of evidence gathering before acting
-- GRPO fine-tuning provides significant improvement on all tasks
+- Random agent scores near 0.0 on all tasks — no free reward, no exploits
+- Rule-based agent only succeeds on `easy` (restarts the right service); fails on all tasks requiring multi-step reasoning
+- Information-First heuristic shows the value of evidence gathering — dominates on `dns`, `waf`, `bonus`, `thundering_herd`
+- `failover` remains unsolved by all heuristics — requires multi-region coordination not captured by simple rules
 
 Run `python baselines.py` to reproduce these results.
