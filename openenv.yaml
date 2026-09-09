@@ -186,6 +186,68 @@ tasks:
       Real incident: Slack Outage (February 22, 2022)
       Post-mortem: https://slack.engineering/slacks-incident-on-2-22-22/
 
+  - id: bonus_collaborative
+    name: Dual Failure (Collaborative Multi-Agent)
+    description: >
+      Two agents collaborate on the dual-failure task. Agent 1 (Investigator)
+      gathers evidence and diagnoses both failures — log-aggregator disk full
+      and ml-inference-service CPU loop. Agent 2 (Responder) takes remediation
+      actions based on the Investigator's findings. Tests multi-agent
+      coordination: the Responder can see the Investigator's evidence_log but
+      cannot read logs itself; the Investigator can diagnose but cannot
+      restart/rollback. Full credit requires both root causes fixed.
+    difficulty: hard
+    max_steps: 30
+    reward_range: [0.0, 1.0]
+    agents: 2
+    agent_roles: [investigator, responder]
+    api:
+      reset: POST /multi/reset?task_id=bonus
+      investigator: POST /multi/investigator_step
+      responder: POST /multi/responder_step
+      state: GET /multi/state
+      websocket: /ws/multi
+
+multi_agent:
+  enabled: true
+  mode: investigator_responder
+  description: >
+    Two specialised agents collaborate on every task. The Investigator
+    (Agent 1) is restricted to information-gathering and diagnosis actions;
+    the Responder (Agent 2) is restricted to remediation actions. Both share
+    one underlying episode and one step counter. The Responder always sees
+    the full evidence_log built up by the Investigator. Rewards are tracked
+    separately per agent and averaged into a joint reward.
+  investigator_actions:
+    - read_logs
+    - read_metrics
+    - read_runbook
+    - search_logs
+    - diagnose
+    - acknowledge
+    - noop
+  responder_actions:
+    - restart_service
+    - rollback
+    - block_ip_range
+    - create_index
+    - failover
+    - scale_up
+    - alert_oncall
+    - noop
+  api:
+    http:
+      reset: POST /multi/reset?task_id=<task>&seed=<seed>
+      investigator_step: POST /multi/investigator_step?session_id=<id>
+      responder_step: POST /multi/responder_step?session_id=<id>
+      state: GET /multi/state?session_id=<id>
+      sessions: GET /multi/sessions
+    websocket: /ws/multi
+  compatible_frameworks:
+    - PettingZoo
+    - RLlib multi-agent
+    - custom MARL
+
 action_space:
   type: structured
   description: >

@@ -13,6 +13,7 @@ import statistics
 from generator.incident_factory import IncidentFactory
 from curriculum import CurriculumEngine, CurriculumScheduler
 from multi_agent import DualAgentSession
+from multi_agent_env import MultiAgentDevOpsEnv, INVESTIGATOR_ACTIONS, RESPONDER_ACTIONS
 
 _factory = IncidentFactory()
 curriculum_engine = CurriculumEngine()
@@ -2047,7 +2048,174 @@ def list_multi_agent_sessions():
     ]
 
 
-# ─── Curriculum Routes ─────────────────────────────────────────────────────────
+# ─── MultiAgentDevOpsEnv Routes (/multi) ────────────────────────────────────
+
+_multi_envs: dict[str, MultiAgentDevOpsEnv] = {}
+
+
+@app.post("/multi/reset")
+def multi_reset(task_id: str = "bonus", seed: int = 42):
+    """
+    Start a new Investigator+Responder episode.
+
+    Returns session_id plus the initial observation for both agents.
+    """
+    env = MultiAgentDevOpsEnv(task_id=task_id, seed=seed)
+    obs = env.reset()
+    _multi_envs[env.session_id] = env
+    return {
+        "session_id": env.session_id,
+        "task_id": task_id,
+        "seed": seed,
+        "investigator_allowed_actions": [a.value for a in INVESTIGATOR_ACTIONS],
+        "responder_allowed_actions": [a.value for a in RESPONDER_ACTIONS],
+        "observation": obs.to_dict(),
+    }
+
+
+@app.post("/multi/investigator_step")
+def multi_investigator_step(session_id: str, body: Action):
+    """
+    Investigator takes one action (read_logs, read_metrics, read_runbook,
+    search_logs, diagnose, acknowledge, noop).
+
+    Restricted to INVESTIGATOR_ACTIONS — returns an error dict if violated.
+    """
+    env = _multi_envs.get(session_id)
+    if env is None:
+        raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+    return env.step_investigator(body)
+
+
+@app.post("/multi/responder_step")
+def multi_responder_step(session_id: str, body: Action):
+    """
+    Responder takes one action (restart_service, rollback, block_ip_range,
+    create_index, failover, scale_up, alert_oncall, noop).
+
+    Restricted to RESPONDER_ACTIONS — returns an error dict if violated.
+    """
+    env = _multi_envs.get(session_id)
+    if env is None:
+        raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+    return env.step_responder(body)
+
+
+@app.get("/multi/state")
+def multi_state(session_id: str):
+    """Full episode state including cumulative rewards for both agents."""
+    env = _multi_envs.get(session_id)
+    if env is None:
+        raise HTTPException(status_code=404, detail=f"Session {session_id} not found")
+    return env.get_state()
+
+
+@app.get("/multi/sessions")
+def multi_sessions():
+    """List all active Investigator+Responder sessions."""
+    return [
+        {
+            "session_id": sid,
+            "task_id": env.task_id,
+            "step": env._step,
+            "done": env._done,
+            "investigator_reward": env.get_investigator_reward(),
+            "responder_reward": env.get_responder_reward(),
+            "joint_reward": env.get_joint_reward(),
+        }
+        for sid, env in _multi_envs.items()
+    ]
+
+
+@app.websocket("/ws/multi")
+async def ws_multi(websocket: WebSocket):
+    """
+    WebSocket endpoint for real-time multi-agent coordination.
+
+    Protocol
+    --------
+    Client → Server::
+
+        {"command": "reset",  "task_id": "bonus", "seed": 42}
+        {"command": "investigator_step",
+         "action": {"action_type": "read_logs", "service": "log-aggregator"}}
+        {"command": "responder_step",
+         "action": {"action_type": "rollback", "service": "ml-inference-service"}}
+        {"command": "state"}
+
+    Server → Client::
+
+        {"type": "reset_ok",          "session_id": "...", "observation": {...}}
+        {"type": "investigator_result","investigator_obs": {...}, "investigator_reward": 0.05, "done": false}
+        {"type": "responder_result",  "responder_obs": {...}, "responder_reward": 0.20, "done": false}
+        {"type": "state",             ...get_state() dict...}
+        {"type": "error",             "message": "..."}
+    """
+    await websocket.accept()
+    env: MultiAgentDevOpsEnv | None = None
+
+    try:
+        while True:
+            data = await websocket.receive_json()
+            cmd = data.get("command", "")
+
+            if cmd == "reset":
+                task_id = data.get("task_id", "easy")
+                seed = int(data.get("seed", 42))
+                env = MultiAgentDevOpsEnv(task_id=task_id, seed=seed)
+                obs = env.reset()
+                _multi_envs[env.session_id] = env
+                await websocket.send_json({
+                    "type": "reset_ok",
+                    "session_id": env.session_id,
+                    "task_id": task_id,
+                    "seed": seed,
+                    "investigator_allowed_actions": [a.value for a in INVESTIGATOR_ACTIONS],
+                    "responder_allowed_actions": [a.value for a in RESPONDER_ACTIONS],
+                    "observation": obs.to_dict(),
+                })
+
+            elif cmd == "investigator_step":
+                if env is None:
+                    await websocket.send_json({"type": "error", "message": "Call reset first"})
+                    continue
+                try:
+                    action = Action(**data["action"])
+                except Exception as exc:
+                    await websocket.send_json({"type": "error", "message": str(exc)})
+                    continue
+                result = env.step_investigator(action)
+                await websocket.send_json({"type": "investigator_result", **result})
+
+            elif cmd == "responder_step":
+                if env is None:
+                    await websocket.send_json({"type": "error", "message": "Call reset first"})
+                    continue
+                try:
+                    action = Action(**data["action"])
+                except Exception as exc:
+                    await websocket.send_json({"type": "error", "message": str(exc)})
+                    continue
+                result = env.step_responder(action)
+                await websocket.send_json({"type": "responder_result", **result})
+
+            elif cmd == "state":
+                if env is None:
+                    await websocket.send_json({"type": "error", "message": "Call reset first"})
+                    continue
+                await websocket.send_json({"type": "state", **env.get_state()})
+
+            else:
+                await websocket.send_json({
+                    "type": "error",
+                    "message": f"Unknown command '{cmd}'. Use: reset, investigator_step, responder_step, state",
+                })
+
+    except WebSocketDisconnect:
+        pass
+
+
+# ─── Curriculum Routes ────────────────────────────────────────────────────────
 
 @app.get("/curriculum/status")
 def get_curriculum_status():

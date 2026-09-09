@@ -193,14 +193,49 @@ GET /generate/preview?seed=1337
 POST /reset  # {"task_id": "generated", "seed": 1337}
 ```
 
-### Dual-Agent Mode
-Split observability. Agent A (Observer) sees logs and alerts. Agent B (Responder) sees metrics and dependencies. They coordinate via `share_finding`. Neither can solve the incident alone.
+### Multi-Agent Mode
 
+Two specialised agents collaborate on the same incident episode — one investigates, one remediates. This models real incident response: one engineer digs into the logs while another stages the fix.
+
+| Agent | Role | Available Actions |
+|---|---|---|
+| **Investigator** | Evidence gathering + diagnosis | `read_logs`, `read_metrics`, `read_runbook`, `search_logs`, `diagnose`, `acknowledge`, `noop` |
+| **Responder** | Remediation | `restart_service`, `rollback`, `block_ip_range`, `create_index`, `failover`, `scale_up`, `alert_oncall`, `noop` |
+
+Both share one underlying episode (same step counter, same `evidence_log`). The Responder always sees everything the Investigator has gathered. Rewards are tracked separately and averaged into a **joint reward**.
+
+**HTTP API:**
+```bash
+# 1. Start a collaborative episode
+POST /multi/reset?task_id=bonus&seed=42
+→ {"session_id": "...", "investigator_allowed_actions": [...], "observation": {...}}
+
+# 2. Investigator gathers evidence
+POST /multi/investigator_step?session_id=<id>
+Body: {"action_type": "read_logs", "service": "log-aggregator"}
+→ {"investigator_obs": {...}, "investigator_reward": 0.05, "done": false}
+
+# 3. Responder applies fix
+POST /multi/responder_step?session_id=<id>
+Body: {"action_type": "rollback", "service": "ml-inference-service"}
+→ {"responder_obs": {...}, "responder_reward": 0.20, "done": false}
+
+# 4. Check state
+GET /multi/state?session_id=<id>
+→ {"investigator_reward": 0.35, "responder_reward": 0.55, "joint_reward": 0.45, ...}
+```
+
+**WebSocket:** Connect to `/ws/multi` for real-time coordination (see `server/app.py` for full protocol).
+
+**Compatible with:** PettingZoo, RLlib multi-agent, custom MARL implementations.
+
+*Legacy Observer/Responder API (text-based findings):*
 ```bash
 POST /multi-agent/reset    # {"task_id": "easy", "seed": 42}
 POST /multi-agent/step/a/{id}  # {"finding": "order-service OOM"}
 POST /multi-agent/step/b/{id}  # {"action_type": "restart_service", ...}
 ```
+
 
 ---
 
